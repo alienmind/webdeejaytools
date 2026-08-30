@@ -51,7 +51,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <ArrowLeftRight className={`w-5 h-5 ${activeTab === 'converter' ? 'text-cyan-400' : 'text-slate-400'}`} />
               <span>Playlist Converter</span>
             </div>
-            <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">Tool 1</span>
           </button>
 
           <button
@@ -66,12 +65,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <Download className={`w-5 h-5 ${activeTab === 'downloader' ? 'text-purple-400' : 'text-slate-400'}`} />
               <span>Audio Downloader</span>
             </div>
-            {activeDownloadCount > 0 ? (
+            {activeDownloadCount > 0 && (
               <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-500 text-white animate-bounce">
                 {activeDownloadCount}
               </span>
-            ) : (
-              <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">Tool 2</span>
             )}
           </button>
         </nav>
@@ -131,7 +128,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <Settings className={`w-5 h-5 ${activeTab === 'admin' ? 'text-cyan-400' : 'text-slate-400'}`} />
             <span>Admin & Accounts</span>
           </div>
-          <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">Tool 3</span>
         </button>
       </div>
     </aside>
