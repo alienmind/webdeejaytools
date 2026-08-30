@@ -146,6 +146,7 @@ export class DownloadQueue extends EventEmitter {
     const startTime = Date.now();
 
     const fileStream = fs.createWriteStream(targetFilePath);
+    let lastEmitTime = 0;
 
     // Read stream chunks
     const reader = response.body.getReader();
@@ -164,7 +165,11 @@ export class DownloadQueue extends EventEmitter {
         item.speedBps = Math.round(downloadedBytes / elapsedSec);
       }
 
-      this.emit('update', this.getQueue());
+      const now = Date.now();
+      if (now - lastEmitTime >= 300) {
+        lastEmitTime = now;
+        this.emit('update', this.getQueue());
+      }
     }
 
     await new Promise<void>((resolve, reject) => {
