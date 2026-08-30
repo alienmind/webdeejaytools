@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build artifacts
+dist/
+dist-ssr/
+*.local
+tsconfig.tsbuildinfo
+
+# Browser Automation & Session Data
+.browser-data/
+.puppeteer_user_data/
+.playwright/
+
+# Local database and downloaded music
+data/*.json
+!data/.gitkeep
+downloads/
+
+# Environment and sensitive keys
+.env
+.env.*
+!.env.example
+
+# Logs & temp
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.tmp
+*.temp
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,41 @@
+{
+  "name": "webdeejaytools",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.1",
+    "better-sqlite3": "^13.0.3",
+    "hono": "^4.13.5",
+    "lucide-react": "^1.16.0",
+    "music-metadata": "^11.1.2",
+    "node-id3": "^0.2.6",
+    "playwright": "^1.62.1",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "sanitize-filename": "^1.6.3"
+  },
+  "devDependencies": {
+    "@hono/vite-dev-server": "^0.26.1",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.16",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.3",
+    "vitest": "^2.1.8"
+  }
+}
