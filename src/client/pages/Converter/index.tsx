@@ -265,6 +265,9 @@ export const ConverterPage: React.FC<ConverterPageProps> = ({ accounts }) => {
                   >
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
                     <span>Spotify</span>
+                    <span className="text-[9px] font-extrabold uppercase px-1 py-0.2 rounded bg-amber-950 border border-amber-600/70 text-amber-300">
+                      BETA
+                    </span>
                   </button>
                   <button
                     type="button"

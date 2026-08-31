@@ -1,8 +1,7 @@
-import React from 'react';
-import { ArrowLeftRight, Download, Settings, Disc3, ShieldCheck, AlertCircle } from 'lucide-react';
+import { ArrowLeftRight, Download, Settings, Disc3, ShieldCheck, AlertCircle, ListMusic } from 'lucide-react';
 import { Account } from '../../../shared/types.js';
 
-export type ActiveTab = 'converter' | 'downloader' | 'admin';
+export type ActiveTab = 'converter' | 'downloader' | 'mp3' | 'admin';
 
 interface SidebarProps {
   activeTab: ActiveTab;
@@ -71,6 +70,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </span>
             )}
           </button>
+
+          <button
+            onClick={() => setActiveTab('mp3')}
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+              activeTab === 'mp3'
+                ? 'bg-gradient-to-r from-emerald-950/80 to-teal-950/40 text-emerald-300 border border-emerald-500/40 shadow-glow-emerald'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-[#161f30]'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <ListMusic className={`w-5 h-5 ${activeTab === 'mp3' ? 'text-emerald-400' : 'text-slate-400'}`} />
+              <span>MP3 Management</span>
+            </div>
+          </button>
         </nav>
       </div>
 
@@ -99,7 +112,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="flex items-center justify-between">
             <span className="text-slate-400 flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-              Spotify:
+              <span>Spotify <span className="text-[9px] font-bold text-amber-400/90 font-mono">(Beta)</span>:</span>
             </span>
             {activeSpotify ? (
               <span className="text-emerald-400 flex items-center gap-1 font-mono text-[11px]">

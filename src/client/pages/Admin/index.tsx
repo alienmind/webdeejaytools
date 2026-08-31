@@ -14,6 +14,7 @@ import {
   HelpCircle,
   ExternalLink,
   FolderOpen,
+  AlertTriangle,
 } from 'lucide-react';
 import { Account, AppSettings, AuthTestResult, QualityId, ServiceType } from '../../../shared/types.js';
 import { api } from '../../services/api.js';
@@ -51,19 +52,34 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   const [localSettings, setLocalSettings] = useState<AppSettings>(settings);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsSuccess, setSettingsSuccess] = useState(false);
-  const [isBrowsingDir, setIsBrowsingDir] = useState(false);
+  const [isBrowsingDownloadDir, setIsBrowsingDownloadDir] = useState(false);
+  const [isBrowsingLibraryDir, setIsBrowsingLibraryDir] = useState(false);
 
-  const handleBrowseDirectory = async () => {
+  const handleBrowseDownloadDirectory = async () => {
     try {
-      setIsBrowsingDir(true);
-      const result = await api.browseDirectory(localSettings.defaultDownloadDir);
+      setIsBrowsingDownloadDir(true);
+      const result = await api.browseDirectory(localSettings.defaultDownloadDir, 'Select Default Download Directory');
       if (!result.canceled && result.path) {
         setLocalSettings((prev) => ({ ...prev, defaultDownloadDir: result.path! }));
       }
     } catch (err) {
-      console.error('Failed to open directory browser:', err);
+      console.error('Failed to open download directory browser:', err);
     } finally {
-      setIsBrowsingDir(false);
+      setIsBrowsingDownloadDir(false);
+    }
+  };
+
+  const handleBrowseLibraryDirectory = async () => {
+    try {
+      setIsBrowsingLibraryDir(true);
+      const result = await api.browseDirectory(localSettings.defaultLibraryDir || localSettings.defaultDownloadDir, 'Select Music Library Root Directory');
+      if (!result.canceled && result.path) {
+        setLocalSettings((prev) => ({ ...prev, defaultLibraryDir: result.path! }));
+      }
+    } catch (err) {
+      console.error('Failed to open library directory browser:', err);
+    } finally {
+      setIsBrowsingLibraryDir(false);
     }
   };
 
@@ -301,6 +317,11 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                           <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${isQobuz ? 'bg-blue-950 text-blue-300' : 'bg-emerald-950 text-emerald-300'}`}>
                             {acc.service}
                           </span>
+                          {!isQobuz && (
+                            <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-950/80 border border-amber-600/60 text-amber-300">
+                              BETA (Untested)
+                            </span>
+                          )}
                         </div>
                         {acc.credentials.qobuz?.email && (
                           <p className="text-xs text-slate-400 font-mono">{acc.credentials.qobuz.email}</p>
@@ -391,7 +412,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
         <div className="flex items-center justify-between border-b border-[#1e293b] pb-4">
           <div className="flex items-center gap-2">
             <Settings className="w-5 h-5 text-cyan-400" />
-            <h3 className="font-bold text-white">Global Downloader Settings</h3>
+            <h3 className="font-bold text-white">Music Storage & Downloader Settings</h3>
           </div>
           {settingsSuccess && (
             <span className="text-xs text-emerald-400 flex items-center gap-1 font-bold animate-fadeIn">
@@ -403,26 +424,55 @@ export const AdminPage: React.FC<AdminPageProps> = ({
         <form onSubmit={handleSaveSettings} className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">Default Download Directory</label>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                Music Library Root Directory <span className="text-[10px] text-emerald-400">(DJ Sets & Library Storage)</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={localSettings.defaultLibraryDir || ''}
+                  onChange={(e) => setLocalSettings({ ...localSettings, defaultLibraryDir: e.target.value })}
+                  className="flex-1 px-4 py-2.5 bg-[#090d16] border border-[#1e293b] rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 font-mono"
+                  placeholder="e.g. D:\MP3LIBRARY or ./library"
+                />
+                <button
+                  type="button"
+                  onClick={handleBrowseLibraryDirectory}
+                  disabled={isBrowsingLibraryDir}
+                  className="px-3.5 py-2.5 rounded-xl bg-[#0e1626] hover:bg-emerald-950/80 border border-emerald-800/60 text-emerald-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm shrink-0 disabled:opacity-50"
+                  title="Browse library root directory"
+                >
+                  <FolderOpen className="w-4 h-4 text-emerald-400" />
+                  <span>{isBrowsingLibraryDir ? 'Opening...' : 'Browse'}</span>
+                </button>
+              </div>
+              <span className="text-[10px] text-slate-500">Base folder where flattened DJ sets and managed music reside</span>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                Raw Downloads Directory <span className="text-[10px] text-cyan-400">(Incoming Audio)</span>
+              </label>
               <div className="flex items-center gap-2">
                 <input
                   type="text"
                   value={localSettings.defaultDownloadDir}
                   onChange={(e) => setLocalSettings({ ...localSettings, defaultDownloadDir: e.target.value })}
                   className="flex-1 px-4 py-2.5 bg-[#090d16] border border-[#1e293b] rounded-xl text-xs text-white focus:outline-none focus:border-cyan-500 font-mono"
-                  placeholder="e.g. C:\Music\Downloads or ./downloads"
+                  placeholder="e.g. D:\MP3LIBRARY\downloads or ./downloads"
                 />
                 <button
                   type="button"
-                  onClick={handleBrowseDirectory}
-                  disabled={isBrowsingDir}
+                  onClick={handleBrowseDownloadDirectory}
+                  disabled={isBrowsingDownloadDir}
                   className="px-3.5 py-2.5 rounded-xl bg-[#0e1626] hover:bg-cyan-950/80 border border-cyan-800/60 text-cyan-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm shrink-0 disabled:opacity-50"
-                  title="Browse folder visually"
+                  title="Browse download folder"
                 >
                   <FolderOpen className="w-4 h-4 text-cyan-400" />
-                  <span>{isBrowsingDir ? 'Opening...' : 'Browse'}</span>
+                  <span>{isBrowsingDownloadDir ? 'Opening...' : 'Browse'}</span>
                 </button>
               </div>
+              <span className="text-[10px] text-slate-500">Folder where Qobuz and audio downloader writes new tracks</span>
             </div>
 
             <div>
@@ -531,13 +581,16 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                   <button
                     type="button"
                     onClick={() => setNewService('spotify')}
-                    className={`p-2.5 rounded-xl border text-xs font-medium transition-all ${
+                    className={`p-2.5 rounded-xl border text-xs font-medium transition-all flex items-center justify-center gap-1.5 ${
                       newService === 'spotify'
                         ? 'bg-emerald-950/80 border-emerald-500 text-emerald-300'
                         : 'bg-[#090d16] border-[#1e293b] text-slate-400'
                     }`}
                   >
-                    Spotify
+                    <span>Spotify</span>
+                    <span className="text-[9px] font-extrabold uppercase px-1 py-0.2 rounded bg-amber-950 border border-amber-600/70 text-amber-300">
+                      BETA
+                    </span>
                   </button>
                 </div>
               </div>
@@ -635,7 +688,18 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                   </div>
                 </div>
               ) : (
-                <>
+                <div className="space-y-4">
+                  {/* Warning Beta Notice Banner */}
+                  <div className="p-3.5 rounded-xl bg-amber-950/70 border border-amber-600/70 text-amber-200 text-xs space-y-1.5">
+                    <div className="flex items-center gap-2 font-bold text-amber-300">
+                      <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span>Experimental Feature (BETA - Heavily Untested)</span>
+                    </div>
+                    <p className="text-[11px] text-amber-200/90 leading-relaxed">
+                      Spotify integration & playlist writing is in active development and heavily untested. You will need a registered Developer App from the <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noreferrer" className="text-amber-300 underline font-semibold hover:text-white">Spotify Developer Dashboard</a>.
+                    </p>
+                  </div>
+
                   <div>
                     <label className="block text-xs font-medium text-slate-400 mb-1">Spotify Client ID</label>
                     <input
@@ -666,7 +730,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                       className="w-full px-3 py-2 bg-[#090d16] border border-[#1e293b] rounded-xl text-xs text-white focus:outline-none focus:border-cyan-500 font-mono"
                     />
                   </div>
-                </>
+                </div>
               )}
 
               <div className="flex justify-end gap-2 pt-3 border-t border-[#1e293b]">
