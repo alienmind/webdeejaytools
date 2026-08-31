@@ -1,12 +1,13 @@
 import fs from 'fs';
 import path from 'path';
-import { Account, AppSettings, QualityId } from '../../shared/types.js';
+import { Account, AppSettings, QualityId, DjSetItem } from '../../shared/types.js';
 
 interface DatabaseSchema {
   accounts: Account[];
   settings: AppSettings;
   conversionHistory: any[];
   downloadHistory: any[];
+  djSets?: DjSetItem[];
 }
 
 export function getBaseAppDir(): string {
@@ -21,6 +22,7 @@ export function getBaseAppDir(): string {
 
 const DEFAULT_SETTINGS: AppSettings = {
   defaultDownloadDir: path.resolve(getBaseAppDir(), 'downloads'),
+  defaultLibraryDir: path.resolve(getBaseAppDir(), 'library'),
   defaultQuality: 6 as QualityId, // FLAC 16/44.1
   embedArtwork: true,
   createM3u: true,
@@ -63,9 +65,17 @@ export class JsonStore {
         ...(parsed.settings || {}),
       };
 
+      // Ensure defaultLibraryDir is initialized if not present in legacy db
+      if (!settings.defaultLibraryDir) {
+        settings.defaultLibraryDir = path.resolve(getBaseAppDir(), 'library');
+      }
+
       // If previous portable run saved a temp AppData path, sanitize back to portable USB directory
       if (settings.defaultDownloadDir && settings.defaultDownloadDir.includes('AppData\\Local\\Temp')) {
         settings.defaultDownloadDir = path.resolve(getBaseAppDir(), 'downloads');
+      }
+      if (settings.defaultLibraryDir && settings.defaultLibraryDir.includes('AppData\\Local\\Temp')) {
+        settings.defaultLibraryDir = path.resolve(getBaseAppDir(), 'library');
       }
 
       return {
@@ -86,7 +96,19 @@ export class JsonStore {
     }
     const tempPath = `${this.dbPath}.tmp`;
     fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), 'utf-8');
-    fs.renameSync(tempPath, this.dbPath);
+    try {
+      if (fs.existsSync(this.dbPath)) {
+        fs.unlinkSync(this.dbPath);
+      }
+      fs.renameSync(tempPath, this.dbPath);
+    } catch {
+      try {
+        fs.copyFileSync(tempPath, this.dbPath);
+        fs.unlinkSync(tempPath);
+      } catch {
+        fs.writeFileSync(this.dbPath, JSON.stringify(data, null, 2), 'utf-8');
+      }
+    }
   }
 
   private persist(): void {
@@ -192,6 +214,51 @@ export class JsonStore {
     };
     this.persist();
     return { ...this.data.settings };
+  }
+
+  // --- DJ Sets ---
+
+  public getDjSets(): DjSetItem[] {
+    return [...(this.data.djSets || [])];
+  }
+
+  public addOrUpdateDjSet(set: { name: string; path: string; trackCount: number }): DjSetItem {
+    if (!this.data.djSets) {
+      this.data.djSets = [];
+    }
+
+    const resolvedPath = path.resolve(set.path);
+    const existingIdx = this.data.djSets.findIndex(
+      (s) => path.resolve(s.path).toLowerCase() === resolvedPath.toLowerCase()
+    );
+
+    const item: DjSetItem = {
+      id: existingIdx !== -1 ? this.data.djSets[existingIdx].id : `djset_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      name: set.name,
+      path: resolvedPath,
+      trackCount: set.trackCount,
+      createdAt: existingIdx !== -1 ? this.data.djSets[existingIdx].createdAt : new Date().toISOString(),
+    };
+
+    if (existingIdx !== -1) {
+      this.data.djSets[existingIdx] = item;
+    } else {
+      this.data.djSets.unshift(item);
+    }
+
+    this.persist();
+    return item;
+  }
+
+  public deleteDjSet(pathOrId: string): boolean {
+    if (!this.data.djSets) return false;
+    const initialLen = this.data.djSets.length;
+    const resolved = path.resolve(pathOrId).toLowerCase();
+    this.data.djSets = this.data.djSets.filter(
+      (s) => s.id !== pathOrId && path.resolve(s.path).toLowerCase() !== resolved
+    );
+    this.persist();
+    return this.data.djSets.length < initialLen;
   }
 }
 

@@ -98,12 +98,75 @@ export interface DownloadItemProgress {
 
 export interface AppSettings {
   defaultDownloadDir: string;
+  defaultLibraryDir: string;
   defaultQuality: QualityId;
   embedArtwork: boolean;
   createM3u: boolean;
   folderFormat: string;
   trackFormat: string;
   djMode: boolean;
+}
+
+export interface LocalTrackItem {
+  id: string;
+  filePath: string;
+  fileName: string;
+  relativeSubPath: string;
+  fileSize: number;
+  extension: string;
+  title: string;
+  artist: string;
+  album: string;
+  year?: number | string;
+  trackNumber?: number;
+  durationSec?: number;
+  bpm?: number;
+  key?: string;
+  bitrate?: number;
+  sampleRate?: number;
+  lossless?: boolean;
+  hasArtwork: boolean;
+}
+
+export interface ScanDirectoryResult {
+  directory: string;
+  totalFiles: number;
+  tracks: LocalTrackItem[];
+  scannedAt: string;
+}
+
+export interface CreateDjSetRequest {
+  sourceDirectory?: string;
+  targetDirectory?: string;
+  sessionName: string;
+  trackPaths?: string[];
+  copyMode?: boolean; // false = move (default), true = copy
+  cleanEmptyFolders?: boolean;
+}
+
+export interface DjSetItem {
+  id: string;
+  name: string;
+  path: string;
+  trackCount: number;
+  createdAt: string;
+}
+
+export interface CreateDjSetResult {
+  success: boolean;
+  sessionName: string;
+  targetDirectory: string;
+  totalRequested: number;
+  processedCount: number;
+  failedCount: number;
+  copyMode: boolean;
+  errors: { filePath: string; error: string }[];
+}
+
+export interface DeleteTracksResult {
+  success: boolean;
+  deletedCount: number;
+  errors: { filePath: string; error: string }[];
 }
 
 export interface AuthTestResult {

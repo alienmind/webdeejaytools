@@ -1,34 +1,49 @@
 import { Hono } from 'hono';
 import { store } from '../db/index.js';
-import { exec } from 'child_process';
+import { execFile, exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 
+const execFileAsync = promisify(execFile);
 const execAsync = promisify(exec);
 const app = new Hono();
 
 /**
  * Triggers a native visual folder picker on Windows, macOS, or Linux.
  */
-async function promptDirectoryDialog(defaultPath?: string): Promise<string | null> {
+async function promptDirectoryDialog(defaultPath?: string, description?: string): Promise<string | null> {
   const platform = process.platform;
   const initialPath = defaultPath ? path.resolve(defaultPath) : process.cwd();
+  const dialogDesc = description || 'Select Directory';
 
   if (platform === 'win32') {
-    // PowerShell FolderBrowserDialog
+    // PowerShell FolderBrowserDialog using base64 EncodedCommand to avoid any escaping or quote stripping issues
     const psScript = `
 Add-Type -AssemblyName System.Windows.Forms
 $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-$dialog.Description = 'Select Default Download Directory'
+$dialog.Description = '${dialogDesc.replace(/'/g, "''")}'
 $dialog.ShowNewFolderButton = $true
-$dialog.SelectedPath = '${initialPath.replace(/'/g, "''")}'
-if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+if (Test-Path '${initialPath.replace(/'/g, "''")}') {
+    $dialog.SelectedPath = '${initialPath.replace(/'/g, "''")}'
+}
+$dummy = New-Object System.Windows.Forms.Form
+$dummy.TopMost = $true
+$res = $dialog.ShowDialog($dummy)
+$dummy.Dispose()
+if ($res -eq [System.Windows.Forms.DialogResult]::OK) {
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
     Write-Output $dialog.SelectedPath
 }
 `.trim();
+
     try {
-      const { stdout } = await execAsync(`powershell -NoProfile -NonInteractive -Command "${psScript.replace(/"/g, '\\"')}"`);
+      const encoded = Buffer.from(psScript, 'utf16le').toString('base64');
+      const { stdout } = await execFileAsync('powershell.exe', [
+        '-NoProfile',
+        '-STA',
+        '-EncodedCommand',
+        encoded,
+      ]);
       const selected = stdout.trim();
       return selected || null;
     } catch (err) {
@@ -38,7 +53,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
   } else if (platform === 'darwin') {
     // macOS AppleScript
     try {
-      const { stdout } = await execAsync(`osascript -e 'POSIX path of (choose folder with prompt "Select Default Download Directory")'`);
+      const { stdout } = await execAsync(`osascript -e 'POSIX path of (choose folder with prompt "${dialogDesc.replace(/"/g, '\\"')}")'`);
       const selected = stdout.trim();
       return selected || null;
     } catch {
@@ -47,7 +62,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
   } else {
     // Linux: try zenity or kdialog
     try {
-      const { stdout } = await execAsync(`zenity --file-selection --directory --title="Select Default Download Directory" --filename="${initialPath}/"`);
+      const { stdout } = await execAsync(`zenity --file-selection --directory --title="${dialogDesc.replace(/"/g, '\\"')}" --filename="${initialPath}/"`);
       return stdout.trim() || null;
     } catch {
       try {
@@ -80,8 +95,9 @@ app.put('/', async (c) => {
 app.post('/browse-folder', async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
-    const currentPath = body.currentPath || store.getSettings().defaultDownloadDir;
-    const selected = await promptDirectoryDialog(currentPath);
+    const currentPath = body.currentPath || store.getSettings().defaultLibraryDir || store.getSettings().defaultDownloadDir;
+    const title = body.title || 'Select Directory';
+    const selected = await promptDirectoryDialog(currentPath, title);
     if (selected) {
       return c.json({ path: selected, canceled: false });
     }
