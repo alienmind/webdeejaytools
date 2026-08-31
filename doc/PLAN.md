@@ -135,14 +135,11 @@
       registry line.
 - [ ] **Auto-Updater**: Automatic update checks for the portable desktop application.
 
-### Phase 9: Carried Forward from the Architecture Review
+### Phase 9: Carried Forward from the Architecture Review & Active Backlog
 
-Deferred deliberately during the Phase 7b hardening pass; see `doc/IMPROVEMENTS.md` section 9.
+- [x] **Complete Modal Markup Decomposition**: Extracted all modals in `pages/Mp3Management/` (`DjSetModal`, `DeleteModal`, `SmartReorderModal`, `ExportPlaylistModal`, `AnalyzeModal`, `AudioPreviewBar`) into dedicated subcomponents, reducing `index.tsx` to ~1,000 lines.
+- [ ] **Queue Unification**: Consolidate `DownloadQueue` (downloader) and `AnalysisQueue` (analyzer) under a unified `JobQueue<T>` abstraction with standardized SSE streaming, pause/resume, cancel-by-id, and restart persistence (planned for Phase 8).
+- [ ] **Read-Only / Protected Volume UX Feedback**: Surface explicit, actionable "Volume is Read-Only / Write-Protected" toast notifications when `EACCES`, `EROFS`, or `EPERM` is encountered on hardware-locked USB drives.
+- [ ] **Optional passphrase-derived encryption** for `data/db.json` (`scrypt` + `AES-256-GCM`, both in Node core).
+- [ ] **Library Index Isolation**: Move the library index out of `db.json` into its own file before collections scale to 10k+ tracks.
 
-- [ ] Optional passphrase-derived encryption for `data/db.json` (`scrypt` + `AES-256-GCM`, both in
-      Node core). Deferred because it changes the launch UX, not because it is hard.
-- [ ] Converge the download queue onto the `AnalysisQueue` shape: job persistence across restart and
-      per-item cancel.
-- [ ] Extract the remaining modal markup in `pages/Mp3Management/index.tsx` into components. The
-      state logic is already in hooks; what is left is ~1500 lines of JSX.
-- [ ] Move the library index out of `db.json` into its own file before it grows to 10k tracks.

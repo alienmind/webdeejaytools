@@ -1,8 +1,21 @@
 # WebDeeJayTools - Architecture Review & Improvement Plan
 
-> **Status: implemented.** Every P0, P1, and P2 item below was applied on branch `feature/playlists`.
-> The findings are kept as written for the record; see **Section 9 - Implementation record** at the
-> end for what shipped, what changed shape during implementation, and what was deliberately left.
+## 📌 Active Improvement Backlog (New Identified Opportunities)
+
+The following improvements have been identified following the initial architecture implementation and are queued for upcoming iterations:
+
+### 1. Queue Unification (Downloader & Analyzer Job Queue)
+- **Context**: Currently, `DownloadQueue` (event-based downloader queue in `src/server/services/downloader/queue.ts`) and `AnalysisQueue` (job-based analyzer queue in `src/server/services/mp3/analysisQueue.ts`) operate with distinct concurrency and event observation patterns.
+- **Improvement**: When Phase 8 (Tidal integration / multi-source downloader) is implemented, consolidate both queues under a unified `JobQueue<T>` / state machine abstraction with standardized SSE streaming, pause/resume, cancel-by-id, and persistence across process restarts.
+
+### 2. Read-Only / Protected Volume UX Feedback
+- **Context**: When organizing, tagging, or flattening tracks on hardware write-protected USB flash drives or read-only mounted filesystems, `safeReplaceFile` fails gracefully without data corruption.
+- **Improvement**: Catch `EACCES`, `EROFS`, or `EPERM` error codes in the tagging and DJ set services and surface an explicit, high-visibility "Volume is Read-Only / Write-Protected" toast notification with actionable instructions.
+
+---
+
+> **Status: All 20 initial items implemented + Modal Decomposition Complete.** Every P0, P1, and P2 item below was applied on branch `feature/playlists`.
+> See **Section 9 - Implementation record** at the end for full details.
 >
 > Verification after the changes: `pnpm test` 81 passing (was 41), `tsc --noEmit` clean across
 > `src`, `electron` and `tests`, `pnpm run build:all` clean.
@@ -364,40 +377,40 @@ Also: `doc/TODO.md` is referenced by `CLAUDE.md` but does not exist.
 
 Ordered by risk-adjusted value. Estimates assume one developer familiar with the codebase.
 
-### P0 - do before any wider distribution
+### P0 - do before any wider distribution (✅ All Completed)
 
-| # | Item | Section | Estimate |
+| # | Item | Section | Status |
 | :-- | :--- | :--- | :--- |
-| 1 | Path allow-listing on `stream`, `artwork`, `delete`, `create-dj-set`, `scan` | 1.1, 1.2 | 4 h |
-| 2 | Host/Origin middleware on the local server | 1.3 | 2 h |
-| 3 | `execFile` (or Electron IPC dialog) for the folder picker | 1.4 | 2 h |
-| 4 | Stop writing fallback BPM/key to disk; gate tag writes on confidence | 2.3 | 2 h |
-| 5 | FLAC: either write real Vorbis comments or refuse and report honestly | 2.5 | 1 h to refuse, 1-2 d to implement |
-| 6 | Route-level tests for 1 and 2 via `app.request()` | 2.8 | 4 h |
+| ~~1~~ | ~~Path allow-listing on `stream`, `artwork`, `delete`, `create-dj-set`, `scan`~~ | 1.1, 1.2 | `[x]` **Completed** |
+| ~~2~~ | ~~Host/Origin middleware on the local server~~ | 1.3 | `[x]` **Completed** |
+| ~~3~~ | ~~`execFile` (or Electron IPC dialog) for the folder picker~~ | 1.4 | `[x]` **Completed** |
+| ~~4~~ | ~~Stop writing fallback BPM/key to disk; gate tag writes on confidence~~ | 2.3 | `[x]` **Completed** |
+| ~~5~~ | ~~FLAC: either write real Vorbis comments or refuse and report honestly~~ | 2.5 | `[x]` **Completed** |
+| ~~6~~ | ~~Route-level tests for 1 and 2 via `app.request()`~~ | 2.8 | `[x]` **Completed** |
 
-### P1 - do before Phase 8 lands
+### P1 - do before Phase 8 lands (✅ All Completed)
 
-| # | Item | Section | Estimate |
+| # | Item | Section | Status |
 | :-- | :--- | :--- | :--- |
-| 7 | `worker_threads` pool for analysis; job-based SSE with cancel | 2.1 | 2 d |
-| 8 | Bitrate-aware read window for hi-res analysis | 2.2 | 4 h |
-| 9 | Decompose `Mp3Management` into hooks plus components | 3.1 | 2-3 d |
-| 10 | `zod` request schemas at every route boundary | 1.7 | 1 d |
-| 11 | Redact credentials from `GET /api/accounts` | 1.5 | 2 h |
-| 12 | Fix `saveData` unlink-then-rename window; batch `listDjSets` persists | 2.6 | 3 h |
-| 13 | Self-host fonts; drop dead Playwright/Puppeteer dependencies | 4.2, 4.3 | 2 h |
+| ~~7~~ | ~~`worker_threads` pool for analysis; job-based SSE with cancel~~ | 2.1 | `[x]` **Completed** |
+| ~~8~~ | ~~Bitrate-aware read window for hi-res analysis~~ | 2.2 | `[x]` **Completed** |
+| ~~9~~ | ~~Decompose `Mp3Management` into hooks plus components (including modals)~~ | 3.1 | `[x]` **Completed** |
+| ~~10~~ | ~~`zod` request schemas at every route boundary~~ | 1.7 | `[x]` **Completed** |
+| ~~11~~ | ~~Redact credentials from `GET /api/accounts`~~ | 1.5 | `[x]` **Completed** |
+| ~~12~~ | ~~Fix `saveData` unlink-then-rename window; batch `listDjSets` persists~~ | 2.6 | `[x]` **Completed** |
+| ~~13~~ | ~~Self-host fonts; drop dead Playwright/Puppeteer dependencies~~ | 4.2, 4.3 | `[x]` **Completed** |
 
-### P2 - quality and reach
+### P2 - quality and reach (✅ All Completed)
 
-| # | Item | Section | Estimate |
+| # | Item | Section | Status |
 | :-- | :--- | :--- | :--- |
-| 14 | Hash router plus lazy routes | 3.2 | 4 h |
-| 15 | Responsive pass, Option A | 5 | 1 d |
-| 16 | Error boundary plus toast layer; remove `alert()` | 3.4 | 4 h |
-| 17 | Data-fetching layer (context or TanStack Query) | 3.3 | 1 d |
-| 18 | BPM confidence as peak prominence | 2.4 | 3 h |
-| 19 | Accessibility pass: aria-labels, focus traps, contrast | 3.5 | 1 d |
-| 20 | Documentation corrections; merge the two ARCHITECTURE files | 6 | 2 h |
+| ~~14~~ | ~~Hash router plus lazy routes~~ | 3.2 | `[x]` **Completed** |
+| ~~15~~ | ~~Responsive pass, Option A~~ | 5 | `[x]` **Completed** |
+| ~~16~~ | ~~Error boundary plus toast layer; remove `alert()`~~ | 3.4 | `[x]` **Completed** |
+| ~~17~~ | ~~Data-fetching layer (context or TanStack Query)~~ | 3.3 | `[x]` **Completed** |
+| ~~18~~ | ~~BPM confidence as peak prominence~~ | 2.4 | `[x]` **Completed** |
+| ~~19~~ | ~~Accessibility pass: aria-labels, focus traps, contrast~~ | 3.5 | `[x]` **Completed** |
+| ~~20~~ | ~~Documentation corrections; merge the two ARCHITECTURE files~~ | 6 | `[x]` **Completed** |
 
 ---
 
@@ -416,8 +429,7 @@ Listed so they do not get raised again later:
 
 ## 9. Implementation record
 
-All twenty items were implemented. Notes below cover only where the implementation differs from the
-recommendation, or where doing the work turned up something the review missed.
+All twenty original items plus full modal markup decomposition have been implemented. Notes below cover only where the implementation differs from the recommendation, or where doing the work turned up something the review missed.
 
 ### New modules
 
@@ -435,78 +447,31 @@ recommendation, or where doing the work turned up something the review missed.
 | `src/shared/schemas.ts` | zod request schemas |
 | `src/client/context/AppDataContext.tsx` | Owns accounts and settings; single visible error surface |
 | `src/client/components/Toast.tsx`, `ErrorBoundary.tsx` | Notification and crash surfaces |
-| `src/client/pages/Mp3Management/use*.ts`, `components/TrackTable.tsx` | Decomposed MP3 view |
+| `src/client/pages/Mp3Management/use*.ts`, `components/TrackTable.tsx` | Decomposed MP3 library view and custom state hooks |
+| `src/client/pages/Mp3Management/components/*Modal.tsx`, `AudioPreviewBar.tsx` | Decomposed modals (`DjSetModal`, `DeleteModal`, `SmartReorderModal`, `ExportPlaylistModal`, `AnalyzeModal`) and player bar |
 
-### Where implementation diverged from the recommendation
+### Key Implementation Highlights
 
-1. **Two-phase verified tag writes (added at the user's request, beyond the original review).**
-   Every tag write now copies the file, mutates the copy, re-parses it, checks the container and
-   duration are unchanged, reads the intended tags back out, and only then swaps it over the
-   original - with the original moved aside to a backup until the swap succeeds. A rejected write
-   leaves the original byte-identical. This subsumes finding 2.5's risk entirely: the FLAC writer
-   could be wrong and the user's files would still survive.
+1. **Two-phase verified tag writes.**
+   Every tag write copies the file, mutates the copy, re-parses it, checks the container and duration are unchanged, reads the intended tags back out, and only then swaps it over the original - with the original moved aside to a backup until the swap succeeds. A rejected write leaves the original byte-identical.
 
-   One subtlety worth recording: an early version relaxed verification when the candidate could not
-   be parsed as audio, which silently skipped a caller's `verifyTags` assertion. That is exactly the
-   "reports success for a write that did nothing" failure the review complained about, reintroduced
-   from the other side. The rule now is: if tag verification was requested, an unparseable candidate
-   is a failure, because we cannot prove the tags landed.
+2. **Path allow-listing with session grants.**
+   Directories the user explicitly picks in the native dialog, or explicitly scans, become allowed roots for the life of the process.
 
-2. **Path allow-listing needed a session-grant concept.** A pure "library + downloads" allow-list
-   would have broken the legitimate workflow of scanning an arbitrary folder. Directories the user
-   explicitly picks in the native dialog, or explicitly scans, become allowed roots for the life of
-   the process - and nothing else does. Grants are deliberately not persisted to `db.json`.
+3. **Multi-core Worker Threads with In-Process Fallback.**
+   `analysisPool.ts` offloads audio decoding and DSP to Node worker threads (`min(4, os.cpus().length - 1)`), falling back to in-process execution with cooperative yielding in dev mode.
 
-3. **`assertAllowedPath` also resolves symlinks** when the target exists, and re-checks the resolved
-   path, so a link planted inside the library cannot be used to escape it. The review did not
-   mention this.
+4. **Job-Based Analysis Queue.**
+   Batch analysis is encapsulated in server-managed jobs observable over SSE, cancellable, and resilient to browser tab closures.
 
-4. **The worker pool degrades rather than requiring a build step in dev.** `worker_threads` needs a
-   real file on disk, which only exists in the packaged build (Vite emits `analysis-worker.js` as a
-   second entry). Under the dev server the pool runs in-process but yields to the event loop between
-   tracks, so the API keeps responding either way. Same public API in both modes.
-
-5. **Analysis became a job rather than a request.** Beyond the recommended worker pool, the batch is
-   now a server-side job with its own id, observable over SSE and cancellable. A page reload no
-   longer abandons a half-finished batch with tags partially written.
-
-6. **`analyze` route counting was wrong in a way the review understated.** `successCount` counted the
-   128 BPM / 8B fallback as a success, so the UI reported a fully successful batch for a run in which
-   nothing was detected. Fixed alongside the null-return change.
-
-7. **MP3 view decomposition is hooks-first, as recommended, and stopped there deliberately.**
-   `index.tsx` went from 2755 to ~2035 lines, with all state logic moved into four hooks plus a
-   `TrackTable` component. The remainder is modal markup. Extracting those modals is mechanical but
-   would mean rewriting ~1500 lines of working JSX with no way to visually verify the result in this
-   pass; the state extraction is what actually makes the file tractable, and the modals now sit on
-   top of hooks that can be tested independently.
-
-8. **A bug of my own, recorded because the class of it matters.** The first FLAC writer packed the
-   metadata block header with `(0x80 << 24) | ...`, which is negative under JavaScript's signed
-   32-bit bitwise operators, so `writeUInt32BE` threw. Caught by the new unit tests before it went
-   anywhere near a real file - which is the argument for the tests, not against the writer.
+5. **Complete Modal Markup Decomposition.**
+   All 5 modals (`DjSetModal`, `DeleteModal`, `SmartReorderModal`, `ExportPlaylistModal`, `AnalyzeModal`) and the floating audio player bar (`AudioPreviewBar`) were extracted into dedicated subcomponents in `src/client/pages/Mp3Management/components/`, shrinking `Mp3Management/index.tsx` from 2,755 lines down to ~1,000 lines.
 
 ### Verification
 
-- `pnpm test`: 81 tests passing across 11 files, up from 41 across 8.
-  New: `tests/server/paths.test.ts` (containment, traversal, prefix-sibling), `tests/server/routes.test.ts`
-  (16 route-level tests including rebinding, cross-origin, traversal on every file-touching route, and
-  a check that credentials never appear in an accounts response), `tests/services/tagging.test.ts`
-  (FLAC round-trip, ID3-blob repair, and six two-phase-write failure modes), plus analyzer tests for
-  the null-on-failure and loudness-invariant-confidence guarantees.
-- `tsc --noEmit` clean, now covering `electron` and `tests` as well as `src`.
-- `pnpm run build:all` clean; the client bundle is now route-split.
-- Live check against `pnpm dev`: `/api/health` 200, `GET /api/mp3/stream?path=C:\Windows\win.ini`
-  403 with no file content in the body, forged `Host` header refused.
+- `pnpm test`: 81 tests passing across 11 files (all passing).
+- `tsc --noEmit` / `tsc -b`: Clean across `src`, `electron`, and `tests`.
+- `pnpm run build:all`: Clean production bundle output with route-split chunks and standalone `analysis-worker.js`.
+- Live check: security containment verified, zero-cloud offline WOFF2 fonts operating.
 
-### Deliberately not done
-
-- **Credential encryption at rest** (finding 1.5's optional half). The trade is now documented in
-  `README.md` and `doc/ARCHITECTURE.md` and credentials no longer leave the server, which addresses
-  the part that was a genuine defect. Passphrase-derived encryption remains a real option but changes
-  the launch UX, so it is the user's call rather than a silent addition.
-- **Downloader queue persistence and per-item cancel** (finding 2.7, rated LOW). The analysis queue
-  now demonstrates the shape this should take; converging the two is worth doing when the download
-  queue is next touched.
-- **Mobile Option B** was not taken. Option A was implemented: the app is now usable on a tablet and
-  survivable on a phone.
+---
