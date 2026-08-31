@@ -5,6 +5,8 @@ node_modules/
 # Build artifacts
 dist/
 dist-ssr/
+dist-electron/
+release/
 *.local
 tsconfig.tsbuildinfo
 

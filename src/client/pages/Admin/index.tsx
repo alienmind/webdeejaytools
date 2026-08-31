@@ -12,6 +12,7 @@ import {
   Key,
   Pencil,
   HelpCircle,
+  ExternalLink,
 } from 'lucide-react';
 import { Account, AppSettings, AuthTestResult, QualityId, ServiceType } from '../../../shared/types.js';
 import { api } from '../../services/api.js';
@@ -526,21 +527,33 @@ export const AdminPage: React.FC<AdminPageProps> = ({
 
               {newService === 'qobuz' ? (
                 <div className="p-4 bg-[#0a0f1d] border border-cyan-900/60 rounded-xl space-y-4">
-                  {/* Top Bar with Title & Help Guide Button */}
-                  <div className="flex items-center justify-between gap-2">
+                  {/* Top Bar with Title & Action Links */}
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
                     <label className="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
                       <Key className="w-3.5 h-3.5 text-cyan-400" />
                       Qobuz Token Authentication
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => setShowHelpModal(true)}
-                      className="px-2.5 py-1 rounded-lg bg-cyan-950/80 border border-cyan-700/80 text-cyan-300 hover:text-white hover:border-cyan-400 text-xs font-semibold transition-all flex items-center gap-1.5 shadow-sm"
-                      title="Step-by-step visual guide on getting your token"
-                    >
-                      <HelpCircle className="w-3.5 h-3.5 text-cyan-400" />
-                      <span>How to get token?</span>
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <a
+                        href="https://play.qobuz.com"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-2.5 py-1 rounded-lg bg-[#111827] border border-[#1e293b] text-slate-300 hover:text-cyan-300 hover:border-cyan-500 text-xs font-semibold transition-all flex items-center gap-1.5 shadow-sm"
+                        title="Open Qobuz Web Player in a new tab to capture your token"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Open play.qobuz.com</span>
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => setShowHelpModal(true)}
+                        className="px-2.5 py-1 rounded-lg bg-cyan-950/80 border border-cyan-700/80 text-cyan-300 hover:text-white hover:border-cyan-400 text-xs font-semibold transition-all flex items-center gap-1.5 shadow-sm"
+                        title="Step-by-step visual guide on getting your token"
+                      >
+                        <HelpCircle className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>How to get token?</span>
+                      </button>
+                    </div>
                   </div>
 
                   {/* Token Field */}

@@ -1,160 +1,96 @@
-# WebDeeJayTools Implementation Plan
+# WebDeeJayTools Implementation & Roadmap Plan
 
 ## 1. Vision & Goals
 
-WebDeeJayTools is a specialized local web application designed for DJ automation workflows. It provides a web interface with a sleek, responsive dark theme and a left-side navigation rail hosting modular tools:
+**WebDeeJayTools** is a specialized, self-contained DJ workflow automation suite designed for maximum portability and zero cloud dependencies. It provides a sleek, modern dark-themed interface with three core modules:
 
-1. **Tool 1: Playlist Converter / Exporter / Importer**
-   - Manage multiple Qobuz and Spotify accounts.
-   - Paste a source track/album/playlist URL from Spotify or Qobuz.
-   - Auto-detect source service, preview tracklist.
+1. **Tool 1: Playlist Converter**
+   - Cross-service sync between Qobuz and Spotify.
+   - Paste any source track, album, or playlist URL from Spotify or Qobuz.
+   - Auto-detect source service and preview tracklist with cover art.
    - Select target service & account.
-   - Select existing playlist or create a new one on the fly.
-   - Fuzzy match source tracks against target catalog (ISRC, duration, title/artist heuristics).
-   - Display match outcomes (hits, misses, confidence scores, and success percentage).
-   - Add hits to target playlist.
+   - Choose an existing playlist or create a new playlist dynamically.
+   - 4-Tier fuzzy matching (ISRC, title/artist heuristics, duration tolerance).
+   - Display match outcomes (hits, misses, confidence scores, and match percentage).
+   - Add matched tracks to target playlist with progress indication.
 
-2. **Tool 2: Track & Playlist Downloader**
+2. **Tool 2: Audio Downloader**
    - Download individual tracks, albums, or playlists directly to local disk.
-   - Support high quality MP3 (320kbps) and lossless FLAC (16/44.1, 24/96, 24/192) via Qobuz streaming API.
+   - Support MP3 320kbps and lossless FLAC (16/44.1, 24/96, 24/192) via Qobuz streaming API.
    - Embed high-resolution album artwork into audio files.
    - Write standard ID3v2 tags (MP3) and Vorbis comments (FLAC).
    - Sanitize directory and track names with customizable templates (`{artist} - {album} ({year})`, etc.).
    - Automatically generate `.m3u` playlists for downloaded folders.
+   - Live download queue with throttled SSE progress, speed, and status displays.
 
-3. **Tool 3: Admin & Settings Panel (Bottom Navbar)**
-   - Manage credentials for multiple Qobuz accounts (email/password with automatic token & secret extraction).
-   - Manage Spotify credentials (Client ID / Client Secret / OAuth tokens).
-   - Set default download directory, default audio quality, and naming templates.
-   - System diagnostics and connection test utilities.
-
----
-
-## 2. Architecture Overview
-
-### Tech Stack
-- **Language**: TypeScript 5+ (fullstack end-to-end type safety)
-- **Frontend**: React 18/19, Vite, Tailwind CSS, Lucide Icons
-- **Backend**: Node.js, Express (or Vite plugin backend middleware), Server-Sent Events (SSE) for real-time progress streaming
-- **Storage**: Local JSON database (`data/db.json`) for accounts, settings, and download cache
-- **Audio & Tagging**: `node-id3` / `music-metadata` / `flac-tagger`
-- **Network**: Native `fetch` with custom session management, automatic Qobuz web player bundle scraper for secrets
-
-### Directory Structure
-```
-webdeejaytools/
-├── CLAUDE.md
-├── README.md
-├── package.json
-├── tsconfig.json
-├── tsconfig.node.json
-├── vite.config.ts
-├── doc/
-│   ├── ARCHITECTURE.md
-│   ├── PLAN.md
-│   └── TODO.md
-├── src/
-│   ├── client/                    # React UI
-│   │   ├── components/            # Layout, Navbar, Wizard, Table, Progress
-│   │   ├── pages/
-│   │   │   ├── Converter/         # Tool 1: Step-by-step conversion wizard
-│   │   │   ├── Downloader/        # Tool 2: Track/playlist downloader UI
-│   │   │   └── Admin/             # Tool 3: Account & settings manager
-│   │   ├── hooks/                 # useSSE, useAccounts, useSettings
-│   │   ├── services/              # Client API wrapper
-│   │   ├── App.tsx
-│   │   └── main.tsx
-│   ├── server/                    # Node.js backend
-│   │   ├── index.ts               # Express server + SSE handler
-│   │   ├── config.ts
-│   │   ├── db/                    # JSON database manager
-│   │   ├── services/
-│   │   │   ├── qobuz/             # Qobuz bundle scrape, sign, API, download
-│   │   │   ├── spotify/           # Spotify Web API client
-│   │   │   ├── matcher/           # Fuzzy track matching engine
-│   │   │   ├── downloader/        # Download queue, file stream, tagger
-│   │   │   └── sanitize/          # Naming sanitization, m3u generator
-│   │   └── routes/                # Express API routes
-│   └── shared/
-│       └── types.ts               # Shared interfaces (Account, Track, Job, etc.)
-```
+3. **Tool 3: Admin & Accounts Panel**
+   - Manage multiple active connections for Qobuz and Spotify.
+   - In-place account editing (Pencil button) and testing.
+   - Direct `user_auth_token` editing + one-way cURL / Cookie Quick Importer.
+   - Interactive visual guide modal (`? How to get token?`) with DevTools screenshots.
+   - Direct link to `play.qobuz.com`.
+   - Global application settings (download paths, default audio quality, filename formats).
 
 ---
 
-## 3. Detailed Implementation Phases
+## 2. Implemented Features & Current Status
 
-### Phase 1: Project Scaffolding & Shared Data Models
-- [ ] Initialize `package.json` with scripts (`dev`, `build`, `start`, `test`).
-- [ ] Configure `tsconfig.json`, `tsconfig.node.json`, and `vite.config.ts`.
-- [ ] Setup Tailwind CSS and UI design tokens (dark DJ aesthetic).
-- [ ] Define shared domain types in `src/shared/types.ts`:
-  - `ServiceType = 'qobuz' | 'spotify'`
-  - `Account` (id, service, label, credentials, token, status)
-  - `TrackMetadata` (title, artist, album, year, isrc, duration, trackNumber, coverUrl)
-  - `ConversionJob` & `MatchResult`
-  - `DownloadJob` & `DownloadProgress`
+### Phase 1: Project Scaffolding & Foundation
+- [x] Fullstack TypeScript project configuration (`package.json`, `tsconfig.json`, `vite.config.ts`).
+- [x] Tailwind CSS dark DJ aesthetic with responsive vertical sidebar.
+- [x] Shared TypeScript interfaces in `src/shared/types.ts` (`Account`, `TrackItem`, `TrackMatch`, `AppSettings`, `QualityId`).
+- [x] Pure JSON database persistence in `src/server/db/store.ts` (`./data/db.json`) with zero native C++ dependencies.
 
-### Phase 2: Qobuz Service (Ported from `qobuz-dj` & `m4l-qobuz-dj`)
-- [ ] **Bundle Scraper**: Scrape `play.qobuz.com/login` and bundle JS to dynamically extract `app_id` and `secrets`.
-- [ ] **Request Signing**: MD5 request signature generation for `getFileUrl` and `getUserFavorites`.
-- [ ] **API Client**:
-  - Authentication (`user/login` -> user auth token).
-  - URL parser (supporting track, album, playlist, artist URLs).
-  - Metadata resolution (`track/get`, `album/get`, `playlist/get`, `artist/get`).
-  - Catalog search (`track/search`, `album/search`).
-  - User playlist management (`playlist/getUserPlaylists`, `playlist/create`, `playlist/addTracks`).
-  - Signed streaming audio URL generation (`track/getFileUrl`).
+### Phase 2: Qobuz Service & Reverse-Engineered Algorithms
+- [x] **Bundle Scraper**: Dynamically extracts `app_id` and Berlin timezone seed secret (`abb21364945c0583309667d13ca3d93a`) from `play.qobuz.com/resources/.../bundle.js`.
+- [x] **Request Signer**: Exact MD5 request signature algorithm conforming to Qobuz API v0.2.
+- [x] **API Client**: Handles URL parsing, track/album/playlist retrieval, catalog searches, user favorites, and playlist creation.
+- [x] **Authentication**: Direct `user_auth_token` input, one-way DevTools cURL/Cookie parsing, and token verification via `/user/get`.
 
 ### Phase 3: Spotify Service
-- [ ] **Spotify API Client**:
-  - Client Credentials and OAuth Authorization Code (or User Token) support.
-  - URL parser (track, album, playlist, artist URLs).
-  - Metadata resolution (`/tracks/{id}`, `/albums/{id}`, `/playlists/{id}`).
-  - Catalog search (`/search?type=track`).
-  - User playlist management (`/users/{id}/playlists`, `/playlists/{id}/tracks`).
+- [x] **Spotify Web API Client**: Client Credentials Flow for catalog searches, album retrieval, and public playlists.
+- [x] **OAuth Token Support**: Bearer token support for user playlist creation and modification.
+- [x] **URL Parser**: Seamless resolution of `open.spotify.com` track, album, and playlist URLs.
 
 ### Phase 4: Track Matching Engine
-- [ ] **Metadata Normalization**:
-  - Remove "(Remastered 2011)", "[Club Mix]", "feat. XYZ", "Original Mix" for core title search.
-  - Unicode character cleanup.
-- [ ] **Fuzzy Matching Heuristics**:
-  - Tier 1: Exact ISRC match (100% confidence).
-  - Tier 2: Exact Artist + Title match.
-  - Tier 3: Normalized Title + Artist Levenshtein distance $\le 2$.
-  - Tier 4: Duration delta verification ($\pm 3$ seconds bonus, $> 30$ seconds penalty).
-- [ ] Hit / Miss categorization with detailed diagnostic output and confidence score.
+- [x] **Tier 1 (ISRC Match)**: 100% confidence match using International Standard Recording Codes.
+- [x] **Tier 2 (Exact Artist + Title)**: Exact string match on normalized metadata.
+- [x] **Tier 3 (Fuzzy String Similarity)**: Strips "(Remastered)", "[Club Mix]", "feat. ...", and computes Levenshtein distance ($\le 2$).
+- [x] **Tier 4 (Duration Tolerance)**: Compares track durations in seconds ($\pm 3$ seconds score boost, $> 30$ seconds penalty).
+- [x] Diagnostic outcome breakdown (hits, misses, confidence scores, and match percentage).
 
-### Phase 5: Downloader Engine & Tagging
-- [ ] Stream audio directly from Qobuz signed URLs to target filesystem directory.
-- [ ] Tag files:
-  - ID3v2 for MP3 files (Artist, Title, Album, Year, Track Number, Embedded APIC Cover Art).
-  - Vorbis comments for FLAC files.
-- [ ] Filename and folder formatting template engine (`{artist} - {album} ({year})/{tracknumber} - {tracktitle}.mp3`).
-- [ ] Automatic `.m3u` playlist generation for downloaded albums and playlists.
-- [ ] Download queue with concurrent task limit and real-time progress broadcast via SSE.
+### Phase 5: Downloader Engine & Metadata Tagging
+- [x] Direct streaming of signed Qobuz audio URLs to local disk.
+- [x] SSE emission throttling ($\ge 300\text{ms}$) to prevent Node event loop and memory exhaustion.
+- [x] ID3v2 tagging for MP3 320kbps files with embedded cover art.
+- [x] Vorbis comments and metadata tagging for FLAC files.
+- [x] Customizable folder and filename formatting templates.
+- [x] Automatic `.m3u` playlist generation for downloaded albums and playlists.
 
-### Phase 6: Web UI & Tool Views
-- [ ] **Layout**:
-  - Vertical left sidebar with icon buttons:
-    - 🔄 Playlist Converter
-    - ⬇️ Track Downloader
-    - ⚙️ Admin Panel (pinned to bottom)
-  - Main display panel with smooth transitions.
-- [ ] **Tool 1: Playlist Converter UI**:
-  - Step 1: Input URL -> Auto-detect source service & preview tracklist.
-  - Step 2: Source Account & Target Account selection.
-  - Step 3: Target Playlist selection (Existing vs Create New).
-  - Step 4: Live matching progress -> Results Table (Hits in green, Misses in red/yellow, match percentage, action to commit tracks to target playlist).
-- [ ] **Tool 2: Downloader UI**:
-  - URL input or account playlist browser.
-  - Target directory selector & quality selector (MP3 320, FLAC 16/44.1, Hi-Res).
-  - Active download queue with progress bars, speed, and status logs.
-- [ ] **Tool 3: Admin & Settings UI**:
-  - Add / edit / test Qobuz accounts.
-  - Add / edit / test Spotify accounts.
-  - Set default download directory and naming patterns.
+### Phase 6: Frontend UI (React 19)
+- [x] Sidebar navigation with aligned module titles: **Playlist Converter**, **Audio Downloader**, and **Admin & Accounts**.
+- [x] Step-by-step Playlist Converter wizard with live fuzzy matching results table.
+- [x] Downloader view with real-time SSE progress, download speed, and queue controls.
+- [x] Admin panel with connection cards, test buttons, and in-place credential editing.
+- [x] Interactive visual help modal (`? How to get token?`) with DevTools screenshots.
+- [x] Direct external link to `play.qobuz.com`.
 
-### Phase 7: Verification & Testing
-- [ ] Unit tests for Qobuz request signing, bundle scraping regexes, and URL parsers.
-- [ ] Unit tests for matcher heuristics with test datasets.
-- [ ] End-to-end integration test of the Express backend & Vite frontend.
+### Phase 7: Desktop Packaging & Portability (Electron)
+- [x] Embedded Hono backend server + Electron BrowserWindow launcher (`electron/main.ts`).
+- [x] Electron build configuration with Vite (`vite.electron.config.ts`).
+- [x] `electron-builder` configuration for portable builds (`electron-builder.json`):
+  - `pnpm run dist:win` $\rightarrow$ **Portable Windows `.exe`** (runs directly from USB drive) & NSIS installer.
+  - `pnpm run dist:mac` $\rightarrow$ **macOS `.dmg`** & `.zip`.
+  - `pnpm run dist:linux` $\rightarrow$ **Linux `.AppImage`** & `.tar.gz`.
+- [x] Relative `./data` and `./downloads` directories for zero-install USB flash drive portability.
+
+---
+
+## 3. Future Roadmap & Backlog
+
+### Phase 8: Extended Streaming & DJ Integrations
+- [ ] **Rekordbox / Traktor / Serato Exporter**: Export converted playlists directly as Rekordbox XML or Traktor NML files.
+- [ ] **BPM & Key Pre-Analysis**: Optional audio analysis for key detection and BPM calculation during download.
+- [ ] **Batch Playlist Converter**: Convert multiple playlists in a single batch queue.
+- [ ] **Tidal Service Adapter**: Add Tidal service integration for 3-way cross-service conversion (Spotify $\leftrightarrow$ Qobuz $\leftrightarrow$ Tidal).
+- [ ] **Auto-Updater**: Configure automatic update checks for the portable desktop application.
