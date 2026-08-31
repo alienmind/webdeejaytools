@@ -1,5 +1,7 @@
 # WebDeeJayTOOLS 🎧
 
+> **🌐Quickstart**: [https://alienmind.github.io/webdeejaytools/](https://alienmind.github.io/webdeejaytools/)
+
 A specialized, self-contained DJ automation suite and lossless audio manager. Runs both as a local web app and as a portable standalone desktop application (`.exe`, `.dmg`, `.AppImage`) that can be executed directly from a USB drive.
 
 ---
