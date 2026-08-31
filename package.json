@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "DJ Automation Suite for playlist conversion, audio downloading, and metadata sync",
   "author": "Alienmind",
+  "packageManager": "pnpm@11.22.0",
   "private": true,
   "type": "module",
   "main": "dist-electron/main.js",
