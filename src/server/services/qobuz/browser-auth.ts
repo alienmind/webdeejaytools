@@ -62,12 +62,3 @@ export async function importCookiesOrToken(rawInput: string) {
 
   return { token, user };
 }
-
-// Kept for backward compatibility if ever called
-export async function loginQobuzAutomated(_email?: string, _password?: string, _interactive?: boolean): Promise<string> {
-  throw new Error('Browser automation has been removed. Please use direct token input or Quick Importer.');
-}
-
-export async function readLocalBrowserSession(): Promise<{ token: string; user: any }> {
-  throw new Error('Local browser auto-detection has been removed. Please copy your token or cURL from DevTools.');
-}
