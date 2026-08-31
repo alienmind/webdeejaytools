@@ -115,7 +115,7 @@ export const DownloaderPage: React.FC<DownloaderPageProps> = ({ settings, queue 
   };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-8 animate-fadeIn">
+    <div className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8  space-y-8 animate-fadeIn">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

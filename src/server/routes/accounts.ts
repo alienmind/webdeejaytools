@@ -1,24 +1,43 @@
 import { Hono } from 'hono';
 import { store } from '../db/index.js';
-import { serviceRegistry, loginQobuzAutomated, importCookiesOrToken, readLocalBrowserSession } from '../services/index.js';
-import { AuthTestResult, ServiceType } from '../../shared/types.js';
+import { serviceRegistry, importCookiesOrToken } from '../services/index.js';
+import { AuthTestResult } from '../../shared/types.js';
+import { importCookieSchema, saveAccountSchema, testAccountSchema } from '../../shared/schemas.js';
+import { errorResponse, parseBody } from '../util/validate.js';
+import { redactAccount, redactAccounts } from '../util/redact.js';
 
 const app = new Hono();
 
+/**
+ * Accounts never leave the server with their secrets attached. The UI needs presence and a hint,
+ * not the Qobuz user_auth_token itself - and the previous behaviour handed the whole credential
+ * blob to the browser on every page load.
+ */
+
 // List all accounts
 app.get('/', (c) => {
-  const accounts = store.getAccounts();
-  return c.json(accounts);
+  return c.json(redactAccounts(store.getAccounts()));
 });
 
 // Save or create account
 app.post('/', async (c) => {
   try {
-    const body = await c.req.json();
-    const saved = store.saveAccount(body);
-    return c.json(saved);
-  } catch (err: any) {
-    return c.json({ error: err.message || 'Failed to save account' }, 400);
+    const body = await parseBody(c, saveAccountSchema);
+
+    // An update that omits credentials must not wipe the ones already stored: the client cannot
+    // send them back, because it never received them.
+    if (body.id && !body.credentials) {
+      const existing = store.getAccount(body.id);
+      if (existing) {
+        const saved = store.saveAccount({ ...body, credentials: existing.credentials });
+        return c.json(redactAccount(saved));
+      }
+    }
+
+    const saved = store.saveAccount(body as any);
+    return c.json(redactAccount(saved));
+  } catch (err) {
+    return errorResponse(c, err, 'API accounts/save');
   }
 });
 
@@ -36,84 +55,61 @@ app.post('/:id/activate', (c) => {
   if (!account) {
     return c.json({ error: 'Account not found' }, 404);
   }
-  return c.json(account);
+  return c.json(redactAccount(account));
 });
 
 // Test connection using modular service registry
 app.post('/test', async (c) => {
-  const body = await c.req.json() as { service: ServiceType; credentials: any };
-  const { service, credentials } = body;
-
   try {
+    const { service, credentials } = await parseBody(c, testAccountSchema);
+
     if (!serviceRegistry.has(service)) {
-      return c.json({
-        success: false,
-        service,
-        message: `Service provider '${service}' is not supported.`,
-      } as AuthTestResult, 400);
+      return c.json(
+        {
+          success: false,
+          service,
+          message: `Service provider '${service}' is not supported.`,
+        } as AuthTestResult,
+        400
+      );
+    }
+
+    // `{ accountId }` means "test what is already stored", so the secret never has to leave the
+    // server and come back.
+    let resolved: unknown = credentials;
+    const accountId = (credentials as { accountId?: string }).accountId;
+    if (accountId) {
+      const account = store.getAccount(accountId);
+      if (!account) {
+        return c.json({ success: false, service, message: 'Account not found' } as AuthTestResult, 404);
+      }
+      resolved = account.credentials?.[service] ?? {};
     }
 
     const adapter = serviceRegistry.get(service);
-    const result = await adapter.testConnection(credentials);
+    const result = await adapter.testConnection(resolved);
     return c.json(result);
   } catch (err: any) {
-    return c.json({
-      success: false,
-      service,
-      message: err.message || 'Connection test failed',
-    } as AuthTestResult, 400);
-  }
-});
-
-// Playwright Browser Login for Qobuz (Headless automated fill or Interactive window)
-app.post('/qobuz/browser-login', async (c) => {
-  try {
-    const body = await c.req.json() as {
-      email?: string;
-      password?: string;
-      label?: string;
-      interactive?: boolean;
-    };
-
-    const token = await loginQobuzAutomated(body.email, body.password, !!body.interactive);
-    const qobuzAdapter = serviceRegistry.get('qobuz');
-    const testRes = await qobuzAdapter.testConnection({ userAuthToken: token });
-
-    if (!testRes.success) {
-      return c.json({ error: testRes.message || 'Failed to validate captured token' }, 400);
-    }
-
-    const account = store.saveAccount({
-      service: 'qobuz',
-      label: body.label || testRes.details?.username || 'Qobuz Account',
-      credentials: {
-        qobuz: {
-          userAuthToken: token,
-        },
+    return c.json(
+      {
+        success: false,
+        message: err?.message || 'Connection test failed',
       },
-      isActive: true,
-    });
-
-    return c.json({
-      success: true,
-      account,
-      details: testRes.details,
-      message: testRes.message,
-    });
-  } catch (err: any) {
-    console.error('[Qobuz Browser Login] Error:', err);
-    return c.json({ error: err.message || 'Browser login failed' }, 500);
+      400
+    );
   }
 });
 
-// Import session directly from Chrome cookie string / cURL header / JSON export
+/**
+ * Import a session from a Cookie header, cURL snippet, or raw token pasted out of DevTools.
+ *
+ * The Playwright-driven /qobuz/browser-login and SQLite /qobuz/auto-detect routes were removed:
+ * their implementations had already been reduced to functions that only threw, and they kept three
+ * heavyweight browser-automation packages in the dependency tree for code that could not run.
+ */
 app.post('/qobuz/import-cookie', async (c) => {
   try {
-    const body = await c.req.json() as { input: string; label?: string; id?: string };
-    if (!body.input || !body.input.trim()) {
-      return c.json({ error: 'Please paste your Cookie header, cURL, or token string.' }, 400);
-    }
-
+    const body = await parseBody(c, importCookieSchema);
     const { token, user } = await importCookiesOrToken(body.input);
 
     const account = store.saveAccount({
@@ -130,40 +126,17 @@ app.post('/qobuz/import-cookie', async (c) => {
 
     return c.json({
       success: true,
-      account,
-      user,
+      account: redactAccount(account),
+      user: {
+        display_name: user.display_name,
+        email: user.email,
+        subscription: user.subscription,
+      },
       message: `Successfully imported Qobuz session as ${user.display_name || user.email} (${user.subscription || 'Active'})`,
     });
   } catch (err: any) {
     console.error('[Qobuz Import Cookie] Error:', err);
-    return c.json({ error: err.message || 'Failed to import session from cookie' }, 400);
-  }
-});
-
-// Auto-detect local Chrome / Brave / Edge session from SQLite
-app.post('/qobuz/auto-detect', async (c) => {
-  try {
-    const { token, user } = await readLocalBrowserSession();
-
-    const account = store.saveAccount({
-      service: 'qobuz',
-      label: user.display_name || user.email || 'Qobuz (Local Browser)',
-      credentials: {
-        qobuz: {
-          userAuthToken: token,
-        },
-      },
-      isActive: true,
-    });
-
-    return c.json({
-      success: true,
-      account,
-      user,
-      message: `Detected and linked Qobuz session for ${user.display_name || user.email} (${user.subscription || 'Active'})`,
-    });
-  } catch (err: any) {
-    return c.json({ error: err.message || 'Auto-detection failed' }, 400);
+    return c.json({ error: err?.message || 'Failed to import session from cookie' }, 400);
   }
 });
 

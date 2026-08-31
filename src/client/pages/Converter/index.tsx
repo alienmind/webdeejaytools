@@ -7,7 +7,7 @@ import {
   RefreshCw,
   Disc,
 } from 'lucide-react';
-import { Account, PlaylistSummary, ServiceType, TrackItem, TrackMatch } from '../../../shared/types.js';
+import { RedactedAccount as Account, PlaylistSummary, ServiceType, TrackItem, TrackMatch } from '../../../shared/types.js';
 import { api } from '../../services/api.js';
 
 interface ConverterPageProps {
@@ -149,7 +149,7 @@ export const ConverterPage: React.FC<ConverterPageProps> = ({ accounts }) => {
   };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-8 animate-fadeIn">
+    <div className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8  space-y-8 animate-fadeIn">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -253,7 +253,7 @@ export const ConverterPage: React.FC<ConverterPageProps> = ({ accounts }) => {
             <div className="space-y-4">
               <div>
                 <label className="block text-xs font-medium text-slate-400 mb-1.5">Target Destination Service</label>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <button
                     type="button"
                     onClick={() => setTargetService('spotify')}
@@ -265,6 +265,9 @@ export const ConverterPage: React.FC<ConverterPageProps> = ({ accounts }) => {
                   >
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
                     <span>Spotify</span>
+                    <span className="text-[9px] font-extrabold uppercase px-1 py-0.2 rounded bg-amber-950 border border-amber-600/70 text-amber-300">
+                      BETA
+                    </span>
                   </button>
                   <button
                     type="button"
@@ -307,7 +310,7 @@ export const ConverterPage: React.FC<ConverterPageProps> = ({ accounts }) => {
             <div className="space-y-4">
               <div>
                 <label className="block text-xs font-medium text-slate-400 mb-1.5">Target Playlist</label>
-                <div className="grid grid-cols-2 gap-3 mb-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
                   <button
                     type="button"
                     onClick={() => setPlaylistMode('new')}

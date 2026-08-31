@@ -37,14 +37,23 @@ A specialized, self-contained DJ automation suite and lossless audio manager. Ru
   - Batch metadata cleaning and tag editing directly on disk.
 
 - 🎵 **Automatic BPM and Key Detection**
-  - Native audio signal analysis to compute precise tempo (BPM).
+  - Native audio signal analysis to compute precise tempo (BPM), run in a multi-core worker pool.
   - Harmonic key detection (standard musical notation & Camelot / Open Key wheels).
-  - Embedding BPM and Key tags into ID3/Vorbis headers for instant CDJ / DJ software recognition.
+  - Embedding BPM and Key tags into ID3 (MP3/WAV/AIFF) and Vorbis (FLAC) headers for instant CDJ / DJ software recognition.
+  - Every tag write is verified on a copy before the original is replaced, and a low-confidence detection is shown but never written to disk.
 
 - 🪄 **Automatic Playlist Building based on Genres, Styles & Moods**
   - Smart playlist generation using acoustic descriptors, genre clustering, and mood profiles.
   - Harmonically mixed playlist sequencing (Camelot wheel energy transitions).
   - Direct export to M3U, Rekordbox XML, and streaming targets.
+
+---
+
+## Notes on Local Data & Security
+
+- All data stays on the machine. The app makes no outbound requests other than to Qobuz and Spotify; fonts and assets are bundled, so it works fully offline off a USB drive.
+- **Credentials in `data/db.json` are stored unencrypted.** An OS keychain cannot travel on a portable drive, so treat the drive itself as a credential. Tokens are never sent back to the browser.
+- The local server accepts loopback requests only, and refuses to read, move, or delete any file outside your configured library and download folders.
 
 ---
 

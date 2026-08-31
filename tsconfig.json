@@ -25,5 +25,5 @@
       "@db/*": ["src/server/db/*"]
     }
   },
-  "include": ["src"]
+  "include": ["src", "electron", "tests"]
 }
