@@ -160,6 +160,85 @@ export const api = {
     return res.json();
   },
 
+  async analyzeTracks(filePaths: string[], writeTags: boolean = false): Promise<import('../../shared/types.js').AnalyzeTracksResponse> {
+    const res = await fetch(`${API_BASE}/mp3/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filePaths, writeTags }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to analyze tracks');
+    }
+    return res.json();
+  },
+
+  async analyzeTracksStream(
+    filePaths: string[],
+    writeTags: boolean = false,
+    onProgress?: (progress: {
+      type: 'progress_start' | 'progress' | 'complete';
+      current: number;
+      total: number;
+      percent: number;
+      filePath?: string;
+      fileName?: string;
+      result?: import('../../shared/types.js').AudioAnalysisResult;
+    }) => void
+  ): Promise<import('../../shared/types.js').AnalyzeTracksResponse> {
+    const res = await fetch(`${API_BASE}/mp3/analyze-stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filePaths, writeTags }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to analyze tracks');
+    }
+
+    const reader = res.body?.getReader();
+    if (!reader) {
+      throw new Error('ReadableStream not supported');
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let finalResponse: import('../../shared/types.js').AnalyzeTracksResponse = {
+      results: [],
+      processedCount: 0,
+      successCount: 0,
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(trimmed.slice(6));
+            if (data.type === 'progress' || data.type === 'progress_start') {
+              if (onProgress) onProgress(data);
+            } else if (data.type === 'complete') {
+              finalResponse = data;
+              if (onProgress) onProgress(data);
+            }
+          } catch {
+            // Ignore parse errors on ping/comments
+          }
+        }
+      }
+    }
+
+    return finalResponse;
+  },
+
   getArtworkUrl(filePath: string): string {
     return `${API_BASE}/mp3/artwork?path=${encodeURIComponent(filePath)}`;
   },

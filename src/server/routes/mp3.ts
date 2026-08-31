@@ -1,11 +1,13 @@
 import { Hono } from 'hono';
+import { streamSSE } from 'hono/streaming';
 import fs from 'fs';
 import path from 'path';
 import { Readable } from 'stream';
 import { store } from '../db/index.js';
 import { scanLocalDirectory, getTrackArtwork } from '../services/mp3/scanner.js';
 import { createDjSet, deleteTracks, listDjSets } from '../services/mp3/djset.js';
-import { CreateDjSetRequest } from '../../shared/types.js';
+import { analyzeAudioTrack } from '../services/mp3/analyzer.js';
+import { CreateDjSetRequest, AnalyzeTracksRequest, AnalyzeTracksResponse } from '../../shared/types.js';
 
 const MIME_MAP: Record<string, string> = {
   '.mp3': 'audio/mpeg',
@@ -174,6 +176,115 @@ app.post('/delete', async (c) => {
     console.error('[API mp3/delete] Error:', err);
     return c.json({ error: err.message || 'Failed to delete tracks' }, 500);
   }
+});
+
+// Analyze Audio Tracks (BPM Autocorrelation & Krumhansl Key Detection - Standard JSON)
+app.post('/analyze', async (c) => {
+  try {
+    const body = (await c.req.json().catch(() => ({}))) as AnalyzeTracksRequest;
+    const filePaths = body.filePaths || [];
+    const writeTags = Boolean(body.writeTags);
+
+    if (filePaths.length === 0) {
+      return c.json({ results: [], processedCount: 0, successCount: 0 }, 200);
+    }
+
+    const results = [];
+    let successCount = 0;
+
+    for (const filePath of filePaths) {
+      const res = await analyzeAudioTrack(filePath, { writeTags });
+      results.push(res);
+      if (res.bpm && res.camelotKey) {
+        successCount++;
+      }
+    }
+
+    const response: AnalyzeTracksResponse = {
+      results,
+      processedCount: filePaths.length,
+      successCount,
+    };
+
+    return c.json(response);
+  } catch (err: any) {
+    console.error('[API mp3/analyze] Error:', err);
+    return c.json({ error: err.message || 'Failed to analyze tracks' }, 500);
+  }
+});
+
+// Analyze Audio Tracks with Real-time SSE Progress Streaming
+app.post('/analyze-stream', async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as AnalyzeTracksRequest;
+  const filePaths = body.filePaths || [];
+  const writeTags = Boolean(body.writeTags);
+
+  return streamSSE(c, async (stream) => {
+    if (filePaths.length === 0) {
+      await stream.writeSSE({
+        data: JSON.stringify({
+          type: 'complete',
+          results: [],
+          processedCount: 0,
+          successCount: 0,
+        }),
+        event: 'message',
+      });
+      return;
+    }
+
+    const results = [];
+    let successCount = 0;
+
+    for (let i = 0; i < filePaths.length; i++) {
+      const filePath = filePaths[i];
+      const fileName = path.basename(filePath);
+
+      // Emit starting progress event
+      await stream.writeSSE({
+        data: JSON.stringify({
+          type: 'progress_start',
+          current: i + 1,
+          total: filePaths.length,
+          percent: Math.round((i / filePaths.length) * 100),
+          filePath,
+          fileName,
+        }),
+        event: 'message',
+      });
+
+      const res = await analyzeAudioTrack(filePath, { writeTags });
+      results.push(res);
+      if (res.bpm && res.camelotKey) {
+        successCount++;
+      }
+
+      // Emit track completed progress event with result
+      await stream.writeSSE({
+        data: JSON.stringify({
+          type: 'progress',
+          current: i + 1,
+          total: filePaths.length,
+          percent: Math.round(((i + 1) / filePaths.length) * 100),
+          filePath,
+          fileName,
+          result: res,
+        }),
+        event: 'message',
+      });
+    }
+
+    // Emit final completion event
+    await stream.writeSSE({
+      data: JSON.stringify({
+        type: 'complete',
+        results,
+        processedCount: filePaths.length,
+        successCount,
+      }),
+      event: 'message',
+    });
+  });
 });
 
 export default app;

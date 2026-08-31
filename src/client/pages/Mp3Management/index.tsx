@@ -37,7 +37,7 @@ import {
   FileText,
   Download,
 } from 'lucide-react';
-import { AppSettings, ScanDirectoryResult, CreateDjSetResult, LocalTrackItem, DjSetItem } from '../../../shared/types.js';
+import { AppSettings, ScanDirectoryResult, CreateDjSetResult, LocalTrackItem, DjSetItem, AudioAnalysisResult } from '../../../shared/types.js';
 import { api } from '../../services/api.js';
 import {
   smartReorderTracks,
@@ -152,6 +152,20 @@ export const Mp3ManagementPage: React.FC<Mp3ManagementPageProps> = ({ settings }
 
   // Created DJ Sets List state
   const [djSets, setDjSets] = useState<DjSetItem[]>([]);
+
+  // Analyze BPM & Key Modal state
+  const [isAnalyzeModalOpen, setIsAnalyzeModalOpen] = useState<boolean>(false);
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [analyzeWriteTags, setAnalyzeWriteTags] = useState<boolean>(true);
+  const [analyzeScope, setAnalyzeScope] = useState<'missing' | 'all' | 'selected'>('missing');
+  const [analyzeResults, setAnalyzeResults] = useState<AudioAnalysisResult[] | null>(null);
+  const [analyzeLiveResults, setAnalyzeLiveResults] = useState<AudioAnalysisResult[]>([]);
+  const [analyzeProgress, setAnalyzeProgress] = useState<{
+    current: number;
+    total: number;
+    percent: number;
+    currentFileName?: string;
+  } | null>(null);
 
   const loadDjSets = async () => {
     try {
@@ -597,6 +611,95 @@ export const Mp3ManagementPage: React.FC<Mp3ManagementPageProps> = ({ settings }
     setIsDeleteModalOpen(true);
   };
 
+  // Open BPM & Key Analysis Modal
+  const handleOpenAnalyzeModal = () => {
+    setAnalyzeResults(null);
+    setAnalyzeLiveResults([]);
+    setAnalyzeProgress(null);
+    setIsAnalyzeModalOpen(true);
+  };
+
+  // Execute BPM & Key Analysis with real-time streaming feedback
+  const handleStartAnalysis = async () => {
+    if (!scanResult || scanResult.tracks.length === 0) return;
+
+    let targetTracks: LocalTrackItem[] = [];
+    if (analyzeScope === 'selected') {
+      targetTracks = scanResult.tracks.filter((t) => selectedIds.has(t.id));
+    } else if (analyzeScope === 'missing') {
+      targetTracks = scanResult.tracks.filter((t) => !t.bpm || !t.key);
+    } else {
+      targetTracks = scanResult.tracks;
+    }
+
+    if (targetTracks.length === 0) {
+      alert('No tracks match the selected analysis criteria.');
+      return;
+    }
+
+    try {
+      setIsAnalyzing(true);
+      setAnalyzeResults(null);
+      setAnalyzeLiveResults([]);
+      setAnalyzeProgress({
+        current: 0,
+        total: targetTracks.length,
+        percent: 0,
+        currentFileName: targetTracks[0]?.fileName,
+      });
+
+      const filePaths = targetTracks.map((t) => t.filePath);
+      const res = await api.analyzeTracksStream(filePaths, analyzeWriteTags, (progress) => {
+        if (progress.type === 'progress_start') {
+          setAnalyzeProgress({
+            current: progress.current,
+            total: progress.total,
+            percent: progress.percent,
+            currentFileName: progress.fileName,
+          });
+        } else if (progress.type === 'progress' && progress.result) {
+          setAnalyzeProgress({
+            current: progress.current,
+            total: progress.total,
+            percent: progress.percent,
+            currentFileName: progress.fileName,
+          });
+          const analyzed = progress.result;
+          setAnalyzeLiveResults((prev) => [analyzed, ...prev]);
+
+          // Live update table state in real time
+          if (analyzed.bpm || analyzed.camelotKey) {
+            setScanResult((prev) => {
+              if (!prev) return prev;
+              const updatedTracks = prev.tracks.map((t) => {
+                if (t.filePath === analyzed.filePath) {
+                  return {
+                    ...t,
+                    bpm: analyzed.bpm ?? t.bpm,
+                    key: analyzed.camelotKey ?? analyzed.key ?? t.key,
+                  };
+                }
+                return t;
+              });
+              return { ...prev, tracks: updatedTracks };
+            });
+          }
+        }
+      });
+
+      setAnalyzeResults(res.results);
+      setAnalyzeProgress(null);
+
+      // Re-scan from disk to guarantee full disk sync
+      await handleScan();
+    } catch (err: any) {
+      console.error('BPM/Key Analysis failed:', err);
+      alert(`Analysis failed: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   // Execute DJ Set creation
   const handleCreateDjSet = async () => {
     if (!sessionName.trim()) return;
@@ -1007,6 +1110,21 @@ export const Mp3ManagementPage: React.FC<Mp3ManagementPageProps> = ({ settings }
               >
                 <Compass className="w-3.5 h-3.5 text-violet-400" />
                 <span>Camelot Wheel</span>
+              </button>
+
+              {/* Analyze BPM & Key Button */}
+              <button
+                onClick={handleOpenAnalyzeModal}
+                disabled={!scanResult || scanResult.tracks.length === 0}
+                className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-md ${
+                  scanResult && scanResult.tracks.length > 0
+                    ? 'bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-glow-amber cursor-pointer active:scale-95 border border-amber-400/30'
+                    : 'bg-[#090d16] text-slate-600 border border-[#1e293b] cursor-not-allowed opacity-50'
+                }`}
+                title="Detect BPM & Camelot Key using backend DSP analysis engine"
+              >
+                <Activity className="w-3.5 h-3.5 text-amber-200" />
+                <span>Analyze BPM & Key</span>
               </button>
 
               {/* Smart Reorder Button */}
@@ -2384,6 +2502,249 @@ export const Mp3ManagementPage: React.FC<Mp3ManagementPageProps> = ({ settings }
                   {exportScope === 'selected' ? selectedIds.size : scanResult.tracks.length} tracks)
                 </span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Analyze BPM & Key Modal */}
+      {isAnalyzeModalOpen && scanResult && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-[#120f1a] border border-amber-600/60 rounded-3xl max-w-2xl w-full p-6 shadow-2xl space-y-5 animate-fadeIn max-h-[92vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-amber-950/80 pb-4 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-gradient-to-tr from-amber-600 to-orange-600 text-white shadow-glow-amber">
+                  <Activity className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-white text-base">Analyze BPM & Camelot Key</h3>
+                  <p className="text-xs text-amber-300/80">
+                    DSP Engine: Low-pass Autocorrelation (BPM) + 12-bin Krumhansl-Schmuckler Chromagram (Key)
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsAnalyzeModalOpen(false)}
+                disabled={isAnalyzing}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-all disabled:opacity-40"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="space-y-4 overflow-y-auto pr-1 flex-1 text-xs">
+              {/* Scope Selection */}
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1.5">
+                  Tracks to Analyze:
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    disabled={isAnalyzing}
+                    onClick={() => setAnalyzeScope('missing')}
+                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                      analyzeScope === 'missing'
+                        ? 'bg-amber-950/70 border-amber-500 text-amber-200 font-bold'
+                        : 'bg-[#09070f] border-[#221c30] text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <div>Missing Info Only</div>
+                    <div className="text-[10px] text-slate-500">
+                      {scanResult.tracks.filter((t) => !t.bpm || !t.key).length} tracks need analysis
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isAnalyzing}
+                    onClick={() => setAnalyzeScope('all')}
+                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                      analyzeScope === 'all'
+                        ? 'bg-amber-950/70 border-amber-500 text-amber-200 font-bold'
+                        : 'bg-[#09070f] border-[#221c30] text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <div>All Scanned Tracks</div>
+                    <div className="text-[10px] text-slate-500">{scanResult.tracks.length} tracks total</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isAnalyzing || selectedIds.size === 0}
+                    onClick={() => setAnalyzeScope('selected')}
+                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                      analyzeScope === 'selected'
+                        ? 'bg-amber-950/70 border-amber-500 text-amber-200 font-bold'
+                        : 'bg-[#09070f] border-[#221c30] text-slate-400 hover:text-slate-200 disabled:opacity-40'
+                    }`}
+                  >
+                    <div>Selected Tracks Only</div>
+                    <div className="text-[10px] text-slate-500">{selectedIds.size} tracks selected</div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Tag Persistence Options */}
+              <div className="p-3.5 rounded-2xl bg-[#09070f] border border-amber-950/80 space-y-2">
+                <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    disabled={isAnalyzing}
+                    checked={analyzeWriteTags}
+                    onChange={(e) => setAnalyzeWriteTags(e.target.checked)}
+                    className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 accent-amber-500 cursor-pointer"
+                  />
+                  <div>
+                    <span className="font-semibold text-white">Write detected BPM & Key to audio file tags (ID3/FLAC)</span>
+                    <p className="text-[10px] text-slate-400">
+                      Permanently saves <code className="text-amber-300 font-mono">TBPM</code> and <code className="text-purple-300 font-mono">TKEY</code> metadata frames into the audio files on disk.
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              {/* In-Progress Progress Bar & Live Counter */}
+              {isAnalyzing && analyzeProgress && (
+                <div className="p-4 rounded-2xl bg-[#09070f] border border-amber-600/50 space-y-3 shadow-lg">
+                  <div className="flex items-center justify-between text-xs font-bold text-amber-200">
+                    <span className="flex items-center gap-2">
+                      <RefreshCw className="w-4 h-4 text-amber-400 animate-spin" />
+                      <span>
+                        Analyzing track {analyzeProgress.current} of {analyzeProgress.total}
+                      </span>
+                    </span>
+                    <span className="font-mono text-amber-300 font-black text-sm">
+                      {analyzeProgress.percent}%
+                    </span>
+                  </div>
+
+                  {/* Visual Progress Bar */}
+                  <div className="w-full h-3 bg-[#181124] rounded-full overflow-hidden border border-amber-950 p-0.5">
+                    <div
+                      className="h-full bg-gradient-to-r from-amber-500 via-orange-500 to-amber-400 transition-all duration-300 rounded-full shadow-glow-amber"
+                      style={{ width: `${Math.max(3, analyzeProgress.percent)}%` }}
+                    />
+                  </div>
+
+                  {analyzeProgress.currentFileName && (
+                    <p className="text-[11px] text-slate-300 truncate font-mono flex items-center gap-1.5">
+                      <span className="text-amber-400 font-semibold">Active:</span>
+                      <span className="truncate">{analyzeProgress.currentFileName}</span>
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Real-time Streaming & Completed Results Table */}
+              {(analyzeLiveResults.length > 0 || analyzeResults) && (
+                <div className="space-y-2 pt-2 border-t border-amber-950/60">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-white text-xs flex items-center gap-1.5">
+                      {isAnalyzing ? (
+                        <>
+                          <Activity className="w-4 h-4 text-amber-400 animate-pulse" />
+                          <span>
+                            Live Results Stream ({analyzeLiveResults.length} tracks analyzed...)
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                          <span>
+                            Analysis Completed (
+                            {(analyzeResults || analyzeLiveResults).filter((r) => r.bpm && r.camelotKey).length} of{' '}
+                            {(analyzeResults || analyzeLiveResults).length} tracks detected)
+                          </span>
+                        </>
+                      )}
+                    </span>
+                  </div>
+
+                  <div className="max-h-60 overflow-y-auto rounded-xl border border-[#221c30] bg-[#09070f] divide-y divide-[#1b1526]">
+                    {(analyzeResults || analyzeLiveResults).map((res, idx) => {
+                      const fileName = res.filePath.split(/[/\\]/).pop() || res.filePath;
+                      return (
+                        <div
+                          key={idx}
+                          className="p-2.5 px-3 flex items-center justify-between text-xs hover:bg-[#140f21] transition-all"
+                        >
+                          <div className="truncate max-w-[280px]">
+                            <span className="font-medium text-slate-200 truncate block">{fileName}</span>
+                            {res.error && <span className="text-[10px] text-red-400">{res.error}</span>}
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            {res.bpm ? (
+                              <span className="px-2 py-0.5 rounded bg-amber-950/80 border border-amber-700/60 text-amber-300 font-mono font-bold text-[11px]">
+                                {res.bpm} BPM
+                              </span>
+                            ) : (
+                              <span className="text-slate-600 font-mono text-[10px]">-- BPM</span>
+                            )}
+
+                            {res.camelotKey ? (
+                              <span className="px-2 py-0.5 rounded bg-purple-950/80 border border-purple-700/60 text-purple-300 font-mono font-bold text-[11px]">
+                                {res.camelotKey} ({res.key})
+                              </span>
+                            ) : (
+                              <span className="text-slate-600 font-mono text-[10px]">-- Key</span>
+                            )}
+
+                            {res.tagsWritten && (
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-800/40 text-[9px] font-bold">
+                                Tagged
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-amber-950/80 shrink-0">
+              <button
+                type="button"
+                disabled={isAnalyzing}
+                onClick={() => setIsAnalyzeModalOpen(false)}
+                className="px-4 py-2.5 rounded-xl bg-[#09070f] hover:bg-slate-800 text-slate-300 text-xs font-semibold transition-all disabled:opacity-40"
+              >
+                {analyzeResults ? 'Close' : 'Cancel'}
+              </button>
+              {!analyzeResults && (
+                <button
+                  type="button"
+                  disabled={isAnalyzing}
+                  onClick={handleStartAnalysis}
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white text-xs font-bold shadow-glow-amber flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+                >
+                  {isAnalyzing ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Analyzing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      <span>
+                        Start DSP Analysis (
+                        {analyzeScope === 'selected'
+                          ? selectedIds.size
+                          : analyzeScope === 'missing'
+                          ? scanResult.tracks.filter((t) => !t.bpm || !t.key).length
+                          : scanResult.tracks.length}{' '}
+                        Tracks)
+                      </span>
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </div>
         </div>
