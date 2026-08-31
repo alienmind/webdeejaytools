@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebDeeJayTOOLS — DJ Automation & Lossless Audio Suite</title>
+  <meta name="description" content="A self-contained, portable desktop suite for cross-service playlist synchronization (Qobuz & Spotify), lossless FLAC downloading, and ID3v2/Vorbis tagging.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            brand: {
+              cyan: '#06b6d4',
+              purple: '#8b5cf6',
+              dark: '#090d16',
+              card: '#0f172a',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #060911;
+      color: #f1f5f9;
+      font-family: 'Inter', sans-serif;
+    }
+    .glow-cyan {
+      box-shadow: 0 0 40px -10px rgba(6, 182, 212, 0.35);
+    }
+    .glow-purple {
+      box-shadow: 0 0 40px -10px rgba(139, 92, 246, 0.35);
+    }
+    .glass-panel {
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .gradient-text {
+      background: linear-gradient(135deg, #38bdf8 0%, #818cf8 50%, #c084fc 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col selection:bg-cyan-500 selection:text-black">
+
+  <!-- Background Gradients -->
+  <div class="fixed inset-0 overflow-hidden pointer-events-none -z-10">
+    <div class="absolute -top-40 -left-40 w-96 h-96 bg-cyan-500/15 rounded-full blur-3xl"></div>
+    <div class="absolute top-1/3 -right-40 w-96 h-96 bg-purple-600/15 rounded-full blur-3xl"></div>
+    <div class="absolute -bottom-40 left-1/3 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl"></div>
+  </div>
+
+  <!-- Top Navbar -->
+  <header class="sticky top-0 z-50 border-b border-slate-800/80 bg-[#060911]/80 backdrop-blur-md">
+    <div class="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-500 to-purple-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
+          <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+          </svg>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <span class="font-extrabold tracking-tight text-lg text-white">WebDeeJay</span>
+          <span class="px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wider bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 rounded-md">TOOLS</span>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-4">
+        <a href="https://github.com/alienmind/webdeejaytools" target="_blank" rel="noreferrer" class="flex items-center gap-2 text-sm text-slate-300 hover:text-white transition-colors">
+          <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24">
+            <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+          </svg>
+          <span class="hidden sm:inline font-medium">GitHub</span>
+        </a>
+        <a href="https://github.com/alienmind/webdeejaytools/releases/latest" target="_blank" rel="noreferrer" class="px-4 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs transition-all shadow-lg shadow-cyan-500/25 flex items-center gap-1.5">
+          <span>Download v0.1.0</span>
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 14l-7 7m0 0l-7-7m7 7V3"/>
+          </svg>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <main class="flex-1 max-w-5xl mx-auto px-4 py-12 md:py-20 flex flex-col items-center text-center">
+    <!-- Release Badge -->
+    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-900/90 border border-slate-700/80 text-xs font-medium text-slate-300 mb-6 shadow-inner">
+      <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+      <span>Portable Standalone Executable</span>
+      <span class="text-slate-500">•</span>
+      <span class="font-mono text-cyan-400 font-bold">v0.1.0 Released</span>
+    </div>
+
+    <!-- Main Title -->
+    <h1 class="text-4xl md:text-6xl font-extrabold tracking-tight max-w-3xl leading-tight md:leading-tight mb-6">
+      DJ Automation & Lossless Audio Suite <br class="hidden sm:block">
+      <span class="gradient-text">Runs Portably from Anywhere</span>
+    </h1>
+
+    <p class="text-base md:text-lg text-slate-400 max-w-2xl mb-10 leading-relaxed">
+      Cross-service playlist conversion between Spotify & Qobuz, high-fidelity FLAC audio downloader, and full ID3v2/Vorbis tagging. Zero installation required.
+    </p>
+
+    <!-- Quick Download CTA Cards -->
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full max-w-3xl mb-16">
+      <!-- Windows -->
+      <a href="https://github.com/alienmind/webdeejaytools/releases/latest/download/WebDeeJayTOOLS-Portable-v0.1.0.exe" class="glass-panel p-5 rounded-2xl flex flex-col items-center text-center hover:border-cyan-500/60 hover:bg-slate-900/90 transition-all group glow-cyan">
+        <div class="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 mb-3 group-hover:scale-110 transition-transform">
+          <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.951-1.799"/>
+          </svg>
+        </div>
+        <span class="font-bold text-white text-sm mb-1">Windows (.exe)</span>
+        <span class="text-xs text-slate-400 font-mono mb-3">Portable • No Install</span>
+        <span class="text-[11px] font-bold text-cyan-400 group-hover:translate-x-0.5 transition-transform flex items-center gap-1">Download Portable ➔</span>
+      </a>
+
+      <!-- macOS -->
+      <a href="https://github.com/alienmind/webdeejaytools/releases/latest" class="glass-panel p-5 rounded-2xl flex flex-col items-center text-center hover:border-purple-500/60 hover:bg-slate-900/90 transition-all group glow-purple">
+        <div class="w-12 h-12 rounded-xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400 mb-3 group-hover:scale-110 transition-transform">
+          <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 3.5c.62-.75 1.04-1.8 0.92-2.85-.9.04-1.99.6-2.63 1.35-.56.65-.96 1.7-.84 2.72 1 .08 2-.51 2.55-1.22z"/>
+          </svg>
+        </div>
+        <span class="font-bold text-white text-sm mb-1">macOS (.dmg)</span>
+        <span class="text-xs text-slate-400 font-mono mb-3">Apple Silicon & Intel</span>
+        <span class="text-[11px] font-bold text-purple-400 group-hover:translate-x-0.5 transition-transform flex items-center gap-1">Download DMG ➔</span>
+      </a>
+
+      <!-- Linux -->
+      <a href="https://github.com/alienmind/webdeejaytools/releases/latest" class="glass-panel p-5 rounded-2xl flex flex-col items-center text-center hover:border-emerald-500/60 hover:bg-slate-900/90 transition-all group">
+        <div class="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mb-3 group-hover:scale-110 transition-transform">
+          <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+          </svg>
+        </div>
+        <span class="font-bold text-white text-sm mb-1">Linux (.AppImage)</span>
+        <span class="text-xs text-slate-400 font-mono mb-3">Universal Binary</span>
+        <span class="text-[11px] font-bold text-emerald-400 group-hover:translate-x-0.5 transition-transform flex items-center gap-1">Download AppImage ➔</span>
+      </a>
+    </div>
+
+    <!-- 3-Step Quickstart Guide -->
+    <section class="w-full text-left mb-16">
+      <div class="text-center mb-10">
+        <h2 class="text-2xl md:text-3xl font-extrabold text-white mb-2">3-Step Quickstart Guide</h2>
+        <p class="text-sm text-slate-400">Get up and running in under 60 seconds directly on your machine or flash drive.</p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <!-- Step 1 -->
+        <div class="glass-panel p-6 rounded-2xl relative border-t-2 border-t-cyan-500 flex flex-col">
+          <div class="flex items-center justify-between mb-4">
+            <span class="w-8 h-8 rounded-lg bg-cyan-500/20 text-cyan-400 font-black font-mono text-sm flex items-center justify-center">01</span>
+            <span class="text-xs font-mono text-slate-500 uppercase">Download</span>
+          </div>
+          <h3 class="font-bold text-white text-base mb-2">Download from GitHub</h3>
+          <p class="text-xs text-slate-400 leading-relaxed mb-4 flex-1">
+            Head to the <a href="https://github.com/alienmind/webdeejaytools/releases/latest" target="_blank" class="text-cyan-400 underline hover:text-cyan-300">GitHub Releases page</a> and grab the standalone binary for your OS (e.g. <code class="px-1 py-0.5 bg-slate-900 rounded font-mono text-cyan-300">WebDeeJayTOOLS-Portable.exe</code>).
+          </p>
+          <div class="p-2.5 rounded-lg bg-[#060911] border border-slate-800 text-[11px] font-mono text-slate-400">
+            ✓ No installation required<br>
+            ✓ No Node.js or Python needed
+          </div>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="glass-panel p-6 rounded-2xl relative border-t-2 border-t-purple-500 flex flex-col">
+          <div class="flex items-center justify-between mb-4">
+            <span class="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-400 font-black font-mono text-sm flex items-center justify-center">02</span>
+            <span class="text-xs font-mono text-slate-500 uppercase">Launch</span>
+          </div>
+          <h3 class="font-bold text-white text-base mb-2">Launch or Put on USB</h3>
+          <p class="text-xs text-slate-400 leading-relaxed mb-4 flex-1">
+            Double-click the executable to launch the dark desktop app. You can copy the executable directly onto a DJ USB flash drive — your settings and database stay portable with the drive.
+          </p>
+          <div class="p-2.5 rounded-lg bg-[#060911] border border-slate-800 text-[11px] font-mono text-slate-400">
+            ✓ Creates local <code class="text-purple-300">./data/</code> folder<br>
+            ✓ 100% offline & local execution
+          </div>
+        </div>
+
+        <!-- Step 3 -->
+        <div class="glass-panel p-6 rounded-2xl relative border-t-2 border-t-emerald-500 flex flex-col">
+          <div class="flex items-center justify-between mb-4">
+            <span class="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 font-black font-mono text-sm flex items-center justify-center">03</span>
+            <span class="text-xs font-mono text-slate-500 uppercase">Use</span>
+          </div>
+          <h3 class="font-bold text-white text-base mb-2">Connect & Sync</h3>
+          <p class="text-xs text-slate-400 leading-relaxed mb-4 flex-1">
+            Open the <strong>Admin & Accounts</strong> panel, paste your session token or cURL header, and convert playlists between Spotify and Qobuz or download lossless FLAC files with embedded tags.
+          </p>
+          <div class="p-2.5 rounded-lg bg-[#060911] border border-slate-800 text-[11px] font-mono text-slate-400">
+            ✓ 4-Tier fuzzy track matching<br>
+            ✓ ID3v2/Vorbis + M3U generation
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Feature Grid -->
+    <section class="w-full text-left mb-16">
+      <div class="text-center mb-10">
+        <h2 class="text-2xl md:text-3xl font-extrabold text-white mb-2">Key Highlights</h2>
+        <p class="text-sm text-slate-400">Built specifically for DJs and high-fidelity music collectors.</p>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div class="glass-panel p-5 rounded-2xl flex items-start gap-4">
+          <div class="w-10 h-10 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center shrink-0">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
+            </svg>
+          </div>
+          <div>
+            <h4 class="font-bold text-white text-sm mb-1">Cross-Service Playlist Converter</h4>
+            <p class="text-xs text-slate-400 leading-relaxed">Fuzzy match playlists between Spotify and Qobuz with ISRC identification, duration tolerance, and match diagnostics.</p>
+          </div>
+        </div>
+
+        <div class="glass-panel p-5 rounded-2xl flex items-start gap-4">
+          <div class="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center shrink-0">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+            </svg>
+          </div>
+          <div>
+            <h4 class="font-bold text-white text-sm mb-1">Lossless FLAC & 320kbps MP3</h4>
+            <p class="text-xs text-slate-400 leading-relaxed">Direct audio stream extraction up to 24-bit/192kHz Hi-Res FLAC with automatic `.m3u` playlist generation.</p>
+          </div>
+        </div>
+
+        <div class="glass-panel p-5 rounded-2xl flex items-start gap-4">
+          <div class="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
+            </svg>
+          </div>
+          <div>
+            <h4 class="font-bold text-white text-sm mb-1">Full ID3v2 & Vorbis Tagging</h4>
+            <p class="text-xs text-slate-400 leading-relaxed">Automatically embeds high-resolution cover art, artist, album, track numbers, and metadata directly into audio files.</p>
+          </div>
+        </div>
+
+        <div class="glass-panel p-5 rounded-2xl flex items-start gap-4">
+          <div class="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center shrink-0">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+            </svg>
+          </div>
+          <div>
+            <h4 class="font-bold text-white text-sm mb-1">Zero-Install USB Portability</h4>
+            <p class="text-xs text-slate-400 leading-relaxed">Keep the portable binary and your music library on a single flash drive. Plugs into any gig or studio laptop.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Bottom CTA -->
+    <div class="w-full glass-panel p-8 rounded-3xl text-center glow-cyan border border-cyan-500/30">
+      <h3 class="text-xl md:text-2xl font-black text-white mb-2">Ready to Upgrade Your DJ Workflow?</h3>
+      <p class="text-xs md:text-sm text-slate-400 max-w-xl mx-auto mb-6">Download the standalone portable application or inspect the source code on GitHub.</p>
+      <div class="flex flex-wrap items-center justify-center gap-3">
+        <a href="https://github.com/alienmind/webdeejaytools/releases/latest" target="_blank" rel="noreferrer" class="px-6 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-sm transition-all shadow-lg shadow-cyan-500/25 flex items-center gap-2">
+          <span>Get Latest Release (v0.1.0)</span>
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
+          </svg>
+        </a>
+        <a href="https://github.com/alienmind/webdeejaytools" target="_blank" rel="noreferrer" class="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-white font-semibold text-sm transition-all flex items-center gap-2">
+          <span>View on GitHub</span>
+        </a>
+      </div>
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-slate-800/80 py-8 text-center text-xs text-slate-500 bg-[#060911]">
+    <div class="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div class="flex items-center gap-2">
+        <span class="font-bold text-slate-300">WebDeeJayTOOLS</span>
+        <span>•</span>
+        <span>Crafted by <a href="https://github.com/alienmind" target="_blank" class="text-cyan-400 hover:underline">Alienmind</a></span>
+      </div>
+      <div class="flex items-center gap-4 text-slate-400">
+        <a href="https://github.com/alienmind/webdeejaytools" class="hover:text-white transition-colors">GitHub Repository</a>
+        <a href="https://github.com/alienmind/webdeejaytools/releases" class="hover:text-white transition-colors">Releases</a>
+        <a href="https://github.com/alienmind/webdeejaytools/blob/main/LICENSE" class="hover:text-white transition-colors">MIT License</a>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>

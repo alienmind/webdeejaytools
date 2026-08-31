@@ -86,11 +86,18 @@
 
 ---
 
-## 3. Future Roadmap & Backlog
-
-### Phase 8: Extended Streaming & DJ Integrations
-- [ ] **Rekordbox / Traktor / Serato Exporter**: Export converted playlists directly as Rekordbox XML or Traktor NML files.
-- [ ] **BPM & Key Pre-Analysis**: Optional audio analysis for key detection and BPM calculation during download.
-- [ ] **Batch Playlist Converter**: Convert multiple playlists in a single batch queue.
-- [ ] **Tidal Service Adapter**: Add Tidal service integration for 3-way cross-service conversion (Spotify $\leftrightarrow$ Qobuz $\leftrightarrow$ Tidal).
-- [ ] **Auto-Updater**: Configure automatic update checks for the portable desktop application.
+### Phase 8: Extended DJ Workflow & Library Management
+- [ ] **Local MP3 Collection Management**:
+  - Library scanning and recursive folder indexing.
+  - Identification of duplicate audio tracks and missing metadata.
+  - Batch in-place ID3v2/Vorbis tag editing directly on disk.
+- [ ] **Automatic BPM and Key Detection**:
+  - Fast audio signal analysis to compute precise tempo (BPM).
+  - Harmonic key detection (standard notation & Camelot / Open Key wheels).
+  - Direct embedding of BPM & Key tags into ID3/Vorbis headers.
+- [ ] **Automatic Playlist Building (Genres, Styles & Moods)**:
+  - Smart playlist generation based on genre classification, energy levels, and mood profiles.
+  - Harmonic playlist sequencing (Camelot wheel compatible progressions).
+  - Export to M3U, Rekordbox XML, Traktor NML, and streaming targets.
+- [ ] **Tidal Service Adapter**: 3-way cross-service conversion (Spotify $\leftrightarrow$ Qobuz $\leftrightarrow$ Tidal).
+- [ ] **Auto-Updater**: Automatic update checks for the portable desktop application.
