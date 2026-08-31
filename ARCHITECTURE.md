@@ -20,10 +20,12 @@
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                    Server Layer (Hono on Node.js 22)                    │
 │  - Route Handlers: /api/mp3, /api/settings, /api/auth, /api/convert     │
-│  - Zero-Native Audio DSP Engine (BPM Autocorrelation & Key Extractor)   │
+│  - Zero-Native Audio DSP Engine in a worker_threads pool (BPM & Key)    │
 │  - Tag Management (ID3 TBPM/TKEY & FLAC Vorbis metadata persistence)   │
 │  - DJ Set Creator (Atomic cross-drive flattening & empty folder cleaner)│
 │  - JSON Database Store (`./data/db.json` with Windows lock safety)      │
+│  - Loopback guard: Host/Origin allow-list + per-launch session token    │
+│  - Path containment guard on every caller-supplied filesystem path      │
 └────────────────────────────────────┬────────────────────────────────────┘
                                      │
                                      ▼
@@ -38,7 +40,9 @@
 
 ## 2. Audio DSP & Music Information Retrieval (MIR) Algorithms
 
-All heavy CPU-bound audio signal processing is executed on the **Node.js backend** to enable zero-copy direct file access, multi-core execution, and direct metadata tag writing without network overhead.
+All heavy CPU-bound audio signal processing is executed on the **Node.js backend** to enable direct file access and direct metadata tag writing without network overhead.
+
+Analysis runs in a **`worker_threads` pool** (`src/server/services/mp3/analysisPool.ts`), sized `min(4, cores - 1)`. This is what makes the multi-core claim real: running the decode, filter, autocorrelation, and FFT stages on the request thread previously froze the entire server for the duration of a batch - no artwork, no preview streaming, not even an SSE heartbeat. Batches are dispatched as cancellable jobs (`analysisQueue.ts`), so the work also survives a page reload. Where the worker script is unavailable (the Vite dev server), the pool degrades to in-process execution that yields between tracks.
 
 ---
 
@@ -165,6 +169,87 @@ Located in `src/shared/playlistExporter.ts`.
 
 ## 4. Metadata Persistence & Disk Safety
 
-- **ID3 Tagging (`node-id3`)**: Detected BPM is written to `TBPM`; detected Camelot key is written to `TKEY`.
-- **FLAC Vorbis Comments**: Persists `BPM` and `INITIALKEY` blocks.
-- **Atomic Disk Writes**: Store persistence (`db.json`) employs atomic rename semantics with Windows file locking fallbacks (`fs.copyFileSync` + write).
+### A. Container-aware tag writing
+
+| Container | Writer | Fields |
+| :--- | :--- | :--- |
+| MP3, WAV, AIFF | `node-id3` | `TBPM` (BPM), `TKEY` (Camelot key), plus standard frames |
+| FLAC | Project's own Vorbis writer (`services/tagging/flac.ts`) | `BPM`, `INITIALKEY`, plus `TITLE`/`ARTIST`/`ALBUM` and a `PICTURE` block |
+| Others (`.m4a`, `.opus`, ...) | None | The write is refused and reported, rather than silently reported as succeeding |
+
+FLAC deliberately does **not** go through `node-id3`. That library writes an ID3v2 container, which in a FLAC file means a blob prepended before the `fLaC` magic - out of spec, rejected by strict decoders and some CDJ firmware, and invisible to Rekordbox and Serato, which read BPM and key from Vorbis comments only. The writer also strips any leading ID3v2 blob it finds, repairing files damaged by earlier versions.
+
+### B. Two-phase verified tag writes
+
+Tagging mutates files a user often cannot re-acquire. No write ever touches the original in place. `services/tagging/safeWrite.ts` runs four steps:
+
+1. **Copy** the original to a sibling work file - same directory, therefore same volume, so the final rename is atomic rather than a cross-device copy.
+2. **Mutate** the work file.
+3. **Verify** it independently: re-parse it, confirm the container is unchanged, confirm the audio duration is within tolerance, and read the intended tags back out. A candidate that cannot be parsed fails verification rather than passing it.
+4. **Swap** it over the original, with the original moved aside to a backup until the swap has succeeded, and rolled back if it has not.
+
+Any failure at any step leaves the original byte-identical.
+
+### C. Analysis is never written speculatively
+
+`detectBpmFromPcm` and `detectKeyFromPcm` return `null` when the signal cannot support an estimate. Tags are written only above `MIN_TAG_WRITE_CONFIDENCE`; below it the result is shown in the UI and marked low-confidence, but nothing is written to disk. BPM confidence is measured as **peak prominence** (best autocorrelation over the mean of the others), which is scale-invariant - the earlier formula scaled with track loudness and so reported high confidence for anything loud.
+
+### D. Database writes
+
+Store persistence (`db.json`) writes to a temp file and renames over the target - atomic on POSIX, and retried on Windows where an antivirus or indexer can transiently hold the file. The file is never unlinked first, which previously left a window in which the database did not exist at all.
+
+---
+
+## 5. Security Model
+
+The threat model is not "public internet server". It is a local HTTP server, bound to loopback, holding **full filesystem authority**, on a fixed and guessable port, reachable by any page loaded in any browser on the machine. Three controls follow.
+
+### A. Path containment (`src/server/util/paths.ts`)
+
+Every caller-supplied filesystem path must resolve inside an allowed root before it is touched. Without this, `GET /api/mp3/stream?path=...` is an arbitrary file read reachable from a plain `<audio src>` with no CORS preflight, and `POST /api/mp3/delete` is an arbitrary unlink.
+
+- Roots are the configured library and download directories, plus directories the user explicitly picked in the native dialog or explicitly scanned this session. Session grants are held in memory and die with the process; they are never persisted to `db.json`.
+- Containment is tested with `path.relative`, not a string prefix, so `C:\library-evil` is not mistaken for a child of `C:\library`.
+- When the target exists, the symlink-resolved path is re-checked, so a link planted inside the library cannot be used to escape it.
+- The guard is applied at the route **and** re-asserted in the service layer for the operations that move or delete files, because containment is an invariant of those operations rather than a property of one caller.
+
+### B. Loopback guard (`src/server/middleware/localGuard.ts`)
+
+- **`Host` allow-list** - defeats DNS rebinding, which cannot forge the Host header.
+- **`Origin` allow-list** - defeats cross-origin requests. This is what actually protects the simple `GET` routes; CORS preflight never applies to them.
+- **Per-launch session token** - a random value injected into the served HTML by the Electron main process and required on every mutating request. Never persisted, regenerated each launch. Off under the Vite dev server, which serves its own HTML and cannot inject it.
+
+### C. Input validation (`src/shared/schemas.ts`)
+
+Every request body and query is parsed with a zod schema at the route boundary. A TypeScript cast over `await c.req.json()` is a compile-time assertion about runtime-untrusted data and proves nothing.
+
+### D. Credentials
+
+Stored unencrypted in `data/db.json` - a deliberate trade, since an OS keychain cannot travel on a USB stick, and the drive should be treated as a credential in its own right. They are, however, never returned over the API: `GET /api/accounts` yields presence flags and hints only (`util/redact.ts`), and connection tests reference an account by id so the secret never leaves the process.
+
+### E. Desktop shell
+
+`contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, a CSP permitting only same-origin resources plus remote cover art, external links forced out to the system browser, and in-window navigation restricted to the local app. The folder picker uses the Electron native dialog rather than shelling out; where the browser-mode fallback must shell out, it uses `execFile` with an argument array so no shell parses caller-supplied text.
+
+---
+
+## 6. Design Decisions & Rationale
+
+Decisions recorded with the trade accepted, so a future change knows what it is overturning.
+
+| # | Decision | Rationale | Trade accepted |
+| :-- | :--- | :--- | :--- |
+| 1 | **Zero native dependencies** - no SQLite, no ffmpeg, no essentia/aubio | The portable single-file `.exe` / `.AppImage` running off a USB stick is the product. Native bindings break that outright | Slower DSP and a JSON store instead of a database |
+| 2 | **Hand-rolled Radix-2 FFT** rather than a library | Correct, dependency-free, and fast enough at $N = 2048$ | Maintaining ~60 lines of transform code |
+| 3 | **DSP on the server, in a worker pool** - not WebAudio in the browser | The server has direct file access, needs no upload, and can write tags. The original problem was threading, not location | A worker script must be emitted as a second build entry; dev falls back to in-process |
+| 4 | **JSON store, not SQLite** | See 1. Human-readable, trivially portable, no migration story needed at this size | Full-file rewrite per mutation; mitigated with `store.batch()` |
+| 5 | **Own FLAC Vorbis writer** rather than `node-id3` on FLAC | `node-id3` prepends an ID3v2 blob, which is invalid in FLAC and invisible to Rekordbox and Serato - the software this tool exists to feed | ~250 lines of container code, covered by unit tests |
+| 6 | **Two-phase verified tag writes** for every container | Tagging mutates paid lossless files the user often cannot re-acquire. A library that half-writes one destroys the only copy | One extra file copy per write |
+| 7 | **`null` on failed detection**, never a plausible default | A wrong key is indistinguishable from a real one once on disk and silently ruins harmonic mixing. Worse than no value | Callers must handle `null` |
+| 8 | **Session-granted path roots** rather than a fixed allow-list | A fixed list would break the legitimate workflow of scanning an arbitrary folder | Grants are per-process, so a restart re-requires the pick |
+| 9 | **Hash routing** rather than history routing | Behaves identically under the dev server, the embedded server, and `file://`, so it does not compromise portability | `#/` in the URL |
+| 10 | **React context + custom hooks**, no state library | Four views and one complex page do not justify Redux/Zustand | Manual memoisation discipline |
+| 11 | **SSE, not WebSockets** | Progress is one-way. SSE reconnects on its own and needs no protocol upgrade | No client-to-server channel on that transport |
+| 12 | **Adapter + registry for streaming services** | Adding Tidal is a folder plus one registry line | A thin indirection for the two services that exist today |
+| 13 | **Self-hosted fonts** | The app is built to run offline off a USB stick at a venue; a CDN fetch is a silent degradation there, and an outbound request per launch from a "zero cloud" tool | 752 KB in the bundle |
+| 14 | **Unencrypted credentials, loudly documented** | OS keychains do not travel on portable media; pretending otherwise is worse than stating the trade | The drive is a credential; encryption remains open as Phase 9 |

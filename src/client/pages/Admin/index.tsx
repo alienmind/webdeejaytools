@@ -16,22 +16,21 @@ import {
   FolderOpen,
   AlertTriangle,
 } from 'lucide-react';
-import { Account, AppSettings, AuthTestResult, QualityId, ServiceType } from '../../../shared/types.js';
+import { AppSettings, AuthTestResult, QualityId, RedactedAccount, ServiceType } from '../../../shared/types.js';
 import { api } from '../../services/api.js';
+import { useAppData } from '../../context/AppDataContext.js';
+import { useToast } from '../../components/Toast.js';
 
-interface AdminPageProps {
-  accounts: Account[];
-  settings: AppSettings;
-  onAccountsUpdated: () => void;
-  onSettingsUpdated: (newSettings: AppSettings) => void;
-}
-
-export const AdminPage: React.FC<AdminPageProps> = ({
-  accounts,
-  settings,
-  onAccountsUpdated,
-  onSettingsUpdated,
-}) => {
+/**
+ * Accounts arrive redacted: the server sends presence flags and hints, never the credential values
+ * themselves. Editing an account therefore starts from empty secret fields, and leaving them empty
+ * keeps whatever is already stored rather than clearing it.
+ */
+export const AdminPage: React.FC = () => {
+  const { accounts, settings, refreshAccounts, setSettingsLocal } = useAppData();
+  const toast = useToast();
+  const onAccountsUpdated = refreshAccounts;
+  const onSettingsUpdated = setSettingsLocal;
   // Modal / Form state
   const [showAddModal, setShowAddModal] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
@@ -50,6 +49,11 @@ export const AdminPage: React.FC<AdminPageProps> = ({
 
   // Local settings state
   const [localSettings, setLocalSettings] = useState<AppSettings>(settings);
+
+  // Settings arrive asynchronously from the context, so mirror them once they land.
+  React.useEffect(() => {
+    setLocalSettings(settings);
+  }, [settings]);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsSuccess, setSettingsSuccess] = useState(false);
   const [isBrowsingDownloadDir, setIsBrowsingDownloadDir] = useState(false);
@@ -62,8 +66,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       if (!result.canceled && result.path) {
         setLocalSettings((prev) => ({ ...prev, defaultDownloadDir: result.path! }));
       }
-    } catch (err) {
-      console.error('Failed to open download directory browser:', err);
+    } catch (err: any) {
+      toast.error('Could not open the folder picker', err?.message);
     } finally {
       setIsBrowsingDownloadDir(false);
     }
@@ -76,8 +80,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       if (!result.canceled && result.path) {
         setLocalSettings((prev) => ({ ...prev, defaultLibraryDir: result.path! }));
       }
-    } catch (err) {
-      console.error('Failed to open library directory browser:', err);
+    } catch (err: any) {
+      toast.error('Could not open the folder picker', err?.message);
     } finally {
       setIsBrowsingLibraryDir(false);
     }
@@ -102,25 +106,19 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     setShowAddModal(true);
   };
 
-  const openEditModal = (acc: Account) => {
+  const openEditModal = (acc: RedactedAccount) => {
     setEditingAccountId(acc.id);
     setNewService(acc.service);
     setNewLabel(acc.label);
     setModalError(null);
 
-    if (acc.service === 'qobuz') {
-      setQobuzUserAuthToken(acc.credentials.qobuz?.userAuthToken || '');
-      setQobuzCookieInput(''); // Always empty in Edit mode (one-way pasting field)
-      setSpotifyClientId('');
-      setSpotifyClientSecret('');
-      setSpotifyAccessToken('');
-    } else {
-      setSpotifyClientId(acc.credentials.spotify?.clientId || '');
-      setSpotifyClientSecret(acc.credentials.spotify?.clientSecret || '');
-      setSpotifyAccessToken(acc.credentials.spotify?.accessToken || '');
-      setQobuzUserAuthToken('');
-      setQobuzCookieInput('');
-    }
+    // Secret fields start blank; the client never receives the stored values. Submitting the form
+    // with them blank leaves the existing credentials untouched.
+    setQobuzUserAuthToken('');
+    setQobuzCookieInput('');
+    setSpotifyClientId('');
+    setSpotifyClientSecret('');
+    setSpotifyAccessToken('');
 
     setShowAddModal(true);
   };
@@ -135,7 +133,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({
         newLabel.trim() || undefined,
         editingAccountId || undefined
       );
-      onAccountsUpdated();
+      await onAccountsUpdated();
+      toast.success('Qobuz session imported');
       setShowAddModal(false);
       setEditingAccountId(null);
       setNewLabel('');
@@ -148,10 +147,11 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     }
   };
 
-  const handleTestAccount = async (account: Account) => {
+  const handleTestAccount = async (account: RedactedAccount) => {
     setTestingId(account.id);
     try {
-      const result = await api.testAccount(account.service, account.credentials);
+      // Credentials stay on the server; passing the account id makes it use the stored ones.
+      const result = await api.testAccount(account.service, { accountId: account.id });
       setTestResults((prev) => ({ ...prev, [account.id]: result }));
     } catch (err: any) {
       setTestResults((prev) => ({
@@ -170,20 +170,20 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   const handleActivateAccount = async (id: string) => {
     try {
       await api.setActiveAccount(id);
-      onAccountsUpdated();
-    } catch (err) {
-      console.error('Failed to activate account:', err);
+      await onAccountsUpdated();
+    } catch (err: any) {
+      toast.error('Could not activate account', err?.message);
     }
   };
 
   const handleDeleteAccount = async (id: string) => {
-    if (confirm('Are you sure you want to delete this account?')) {
-      try {
-        await api.deleteAccount(id);
-        onAccountsUpdated();
-      } catch (err) {
-        console.error('Failed to delete account:', err);
-      }
+    if (!window.confirm('Are you sure you want to delete this account?')) return;
+    try {
+      await api.deleteAccount(id);
+      await onAccountsUpdated();
+      toast.success('Account deleted');
+    } catch (err: any) {
+      toast.error('Could not delete account', err?.message);
     }
   };
 
@@ -195,27 +195,29 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     setModalError(null);
 
     try {
-      const credentials: any = {};
+      const credentials: Record<string, unknown> = {};
       if (newService === 'qobuz') {
-        credentials.qobuz = {
-          userAuthToken: qobuzUserAuthToken.trim() || qobuzCookieInput.trim() || undefined,
-        };
+        const token = qobuzUserAuthToken.trim() || qobuzCookieInput.trim();
+        if (token) credentials.qobuz = { userAuthToken: token };
       } else {
-        credentials.spotify = {
-          clientId: spotifyClientId.trim() || undefined,
-          clientSecret: spotifyClientSecret.trim() || undefined,
-          accessToken: spotifyAccessToken.trim() || undefined,
-        };
+        const spotify: Record<string, string> = {};
+        if (spotifyClientId.trim()) spotify.clientId = spotifyClientId.trim();
+        if (spotifyClientSecret.trim()) spotify.clientSecret = spotifyClientSecret.trim();
+        if (spotifyAccessToken.trim()) spotify.accessToken = spotifyAccessToken.trim();
+        if (Object.keys(spotify).length > 0) credentials.spotify = spotify;
       }
 
+      // Omitting `credentials` entirely tells the server to keep the stored ones - important when
+      // editing an account whose secrets the client was never given.
       await api.saveAccount({
         id: editingAccountId || undefined,
         service: newService,
         label: newLabel.trim(),
-        credentials,
+        ...(Object.keys(credentials).length > 0 ? { credentials } : {}),
       });
 
-      onAccountsUpdated();
+      await onAccountsUpdated();
+      toast.success(editingAccountId ? 'Account updated' : 'Account added');
       setShowAddModal(false);
       setEditingAccountId(null);
       // Reset
@@ -242,15 +244,15 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       onSettingsUpdated(updated);
       setSettingsSuccess(true);
       setTimeout(() => setSettingsSuccess(false), 3000);
-    } catch (err) {
-      console.error('Failed to update settings:', err);
+    } catch (err: any) {
+      toast.error('Could not save settings', err?.message);
     } finally {
       setSavingSettings(false);
     }
   };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-8 animate-fadeIn">
+    <div className="mx-auto max-w-7xl space-y-8 p-4 animate-fadeIn sm:p-6 lg:p-8">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -323,14 +325,16 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                             </span>
                           )}
                         </div>
-                        {acc.credentials.qobuz?.email && (
-                          <p className="text-xs text-slate-400 font-mono">{acc.credentials.qobuz.email}</p>
+                        {acc.email && <p className="text-xs text-slate-300 font-mono">{acc.email}</p>}
+                        {acc.credentialSummary.qobuz?.hasUserAuthToken && !acc.email && (
+                          <p className="text-xs text-cyan-300 font-mono">
+                            Token: {acc.credentialSummary.qobuz.tokenHint}
+                          </p>
                         )}
-                        {acc.credentials.qobuz?.userAuthToken && !acc.credentials.qobuz?.email && (
-                          <p className="text-xs text-cyan-400/80 font-mono">Token: {acc.credentials.qobuz.userAuthToken.substring(0, 10)}...</p>
-                        )}
-                        {acc.credentials.spotify?.clientId && (
-                          <p className="text-xs text-slate-400 font-mono">Client ID: {acc.credentials.spotify.clientId.substring(0, 8)}...</p>
+                        {acc.credentialSummary.spotify?.hasClientId && (
+                          <p className="text-xs text-slate-300 font-mono">
+                            Client ID: {acc.credentialSummary.spotify.clientIdHint}
+                          </p>
                         )}
                       </div>
                     </div>
@@ -566,7 +570,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
             <form onSubmit={handleSaveNewAccount} className="space-y-4">
               <div>
                 <label className="block text-xs font-medium text-slate-400 mb-1">Service Type</label>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <button
                     type="button"
                     onClick={() => setNewService('qobuz')}

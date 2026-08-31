@@ -1,6 +1,7 @@
-import NodeID3 from 'node-id3';
 import fs from 'fs';
+import path from 'path';
 import { TrackItem } from '../../../shared/types.js';
+import { isTaggableExtension, writeTrackTags } from '../tagging/index.js';
 
 export interface TaggingOptions {
   embedArtwork?: boolean;
@@ -18,6 +19,21 @@ export async function fetchArtworkBuffer(coverUrl: string): Promise<Buffer | nul
   }
 }
 
+function artworkMimeType(buffer: Buffer): string {
+  if (buffer.length > 8 && buffer[0] === 0x89 && buffer.toString('ascii', 1, 4) === 'PNG') {
+    return 'image/png';
+  }
+  return 'image/jpeg';
+}
+
+/**
+ * Tags a freshly downloaded file.
+ *
+ * Dispatches by container (ID3 for MP3/WAV/AIFF, Vorbis comments for FLAC) and routes through the
+ * two-phase verified writer, so a rejected write leaves the downloaded audio intact rather than
+ * half-tagged. Returns false on failure - the previous implementation returned true from its own
+ * catch block, which reported success for FLAC writes that never happened.
+ */
 export async function tagAudioFile(
   filePath: string,
   track: TrackItem,
@@ -27,71 +43,33 @@ export async function tagAudioFile(
     return false;
   }
 
-  const isMp3 = filePath.toLowerCase().endsWith('.mp3');
-  const isFlac = filePath.toLowerCase().endsWith('.flac');
+  const ext = path.extname(filePath).toLowerCase();
+  if (!isTaggableExtension(ext)) {
+    console.warn(`[Tagger] No tag writer for ${ext}; leaving ${path.basename(filePath)} untagged.`);
+    return false;
+  }
 
-  let imageBuffer: Buffer | null = null;
+  let picture: { mimeType: string; data: Buffer } | null = null;
   if (options.embedArtwork && track.coverUrl) {
-    imageBuffer = await fetchArtworkBuffer(track.coverUrl);
-  }
-
-  if (isMp3) {
-    try {
-      const tags: NodeID3.Tags = {
-        title: track.title,
-        artist: track.artist,
-        album: track.album,
-        trackNumber: track.trackNumber ? String(track.trackNumber) : undefined,
-        year: track.year || undefined,
-        comment: {
-          language: 'eng',
-          text: 'Downloaded with WebDeeJayTools',
-        },
-      };
-
-      if (imageBuffer) {
-        tags.image = {
-          mime: 'image/jpeg',
-          type: { id: 3, name: 'front cover' },
-          description: 'Album Art',
-          imageBuffer,
-        };
-      }
-
-      const success = NodeID3.write(tags, filePath);
-      return success === true;
-    } catch (err) {
-      console.error(`[Tagger] Failed to tag MP3 file ${filePath}:`, err);
-      return false;
+    const imageBuffer = await fetchArtworkBuffer(track.coverUrl);
+    if (imageBuffer) {
+      picture = { mimeType: artworkMimeType(imageBuffer), data: imageBuffer };
     }
   }
 
-  if (isFlac) {
-    // For FLAC files, node-id3 or flac metadata can be appended/handled
-    // If Vorbis comment writer is available or raw ID3 tag appended
-    try {
-      const tags: NodeID3.Tags = {
-        title: track.title,
-        artist: track.artist,
-        album: track.album,
-        trackNumber: track.trackNumber ? String(track.trackNumber) : undefined,
-        year: track.year || undefined,
-      };
-      if (imageBuffer) {
-        tags.image = {
-          mime: 'image/jpeg',
-          type: { id: 3, name: 'front cover' },
-          description: 'Album Art',
-          imageBuffer,
-        };
-      }
-      NodeID3.write(tags, filePath);
-      return true;
-    } catch (err) {
-      console.warn(`[Tagger] FLAC tagging notice for ${filePath}:`, err);
-      return true;
-    }
+  const result = await writeTrackTags(filePath, {
+    title: track.title,
+    artist: track.artist,
+    album: track.album,
+    year: track.year || undefined,
+    trackNumber: track.trackNumber,
+    comment: 'Downloaded with WebDeeJayTools',
+    picture,
+  });
+
+  if (!result.success) {
+    console.error(`[Tagger] Tagging rejected for ${path.basename(filePath)}: ${result.error}`);
   }
 
-  return true;
+  return result.success;
 }

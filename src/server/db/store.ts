@@ -1,6 +1,24 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { Account, AppSettings, QualityId, DjSetItem } from '../../shared/types.js';
+
+/**
+ * Windows and macOS have case-insensitive filesystems; Linux does not. Folding case
+ * unconditionally would treat Track.flac and track.flac as one file on Linux, where they are two.
+ */
+const CASE_INSENSITIVE_FS = process.platform === 'win32' || process.platform === 'darwin';
+
+function pathKey(p: string): string {
+  const resolved = path.resolve(p);
+  return CASE_INSENSITIVE_FS ? resolved.toLowerCase() : resolved;
+}
+
+function isUnderTemp(candidate: string | undefined): boolean {
+  if (!candidate) return false;
+  const rel = path.relative(path.resolve(os.tmpdir()), path.resolve(candidate));
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
 
 interface DatabaseSchema {
   accounts: Account[];
@@ -41,6 +59,8 @@ const DEFAULT_DB: DatabaseSchema = {
 export class JsonStore {
   private dbPath: string;
   private data: DatabaseSchema;
+  private batchDepth = 0;
+  private batchDirty = false;
 
   constructor(customPath?: string) {
     this.dbPath = customPath || path.resolve(getBaseAppDir(), 'data', 'db.json');
@@ -70,11 +90,12 @@ export class JsonStore {
         settings.defaultLibraryDir = path.resolve(getBaseAppDir(), 'library');
       }
 
-      // If previous portable run saved a temp AppData path, sanitize back to portable USB directory
-      if (settings.defaultDownloadDir && settings.defaultDownloadDir.includes('AppData\\Local\\Temp')) {
+      // A previous portable run may have persisted an unpacked-temp path. Detect it against the
+      // real OS temp directory rather than a hardcoded Windows string, so it works everywhere.
+      if (isUnderTemp(settings.defaultDownloadDir)) {
         settings.defaultDownloadDir = path.resolve(getBaseAppDir(), 'downloads');
       }
-      if (settings.defaultLibraryDir && settings.defaultLibraryDir.includes('AppData\\Local\\Temp')) {
+      if (isUnderTemp(settings.defaultLibraryDir)) {
         settings.defaultLibraryDir = path.resolve(getBaseAppDir(), 'library');
       }
 
@@ -89,30 +110,76 @@ export class JsonStore {
     }
   }
 
+  /**
+   * Writes the database via write-temp-then-rename.
+   *
+   * rename() over an existing file is atomic on POSIX and succeeds on Windows, so the previous
+   * unlink-then-rename was not just unnecessary - it opened a window in which db.json did not
+   * exist at all, and a crash there lost every stored account. Windows can still transiently
+   * refuse the rename while an antivirus or indexer holds the file, which is what the retry is
+   * for; the temp file is only removed once the swap has actually happened.
+   */
   private saveData(data: DatabaseSchema): void {
     const dir = path.dirname(this.dbPath);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
+
+    const serialized = JSON.stringify(data, null, 2);
     const tempPath = `${this.dbPath}.tmp`;
-    fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), 'utf-8');
-    try {
-      if (fs.existsSync(this.dbPath)) {
-        fs.unlinkSync(this.dbPath);
-      }
-      fs.renameSync(tempPath, this.dbPath);
-    } catch {
+    fs.writeFileSync(tempPath, serialized, 'utf-8');
+
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < 5; attempt++) {
       try {
-        fs.copyFileSync(tempPath, this.dbPath);
-        fs.unlinkSync(tempPath);
-      } catch {
-        fs.writeFileSync(this.dbPath, JSON.stringify(data, null, 2), 'utf-8');
+        fs.renameSync(tempPath, this.dbPath);
+        return;
+      } catch (err: any) {
+        lastErr = err;
+        if (err?.code !== 'EPERM' && err?.code !== 'EBUSY' && err?.code !== 'EACCES') break;
+        // Busy-wait briefly; this path is rare and the store is synchronous by design.
+        const until = Date.now() + 30 * (attempt + 1);
+        while (Date.now() < until) {
+          /* spin */
+        }
       }
+    }
+
+    // Last resort: copy over the target and keep the temp file until the copy has landed.
+    try {
+      fs.copyFileSync(tempPath, this.dbPath);
+      fs.unlinkSync(tempPath);
+    } catch {
+      console.error('[Store] Could not replace database file:', lastErr);
+      throw lastErr instanceof Error ? lastErr : new Error('Failed to persist database');
     }
   }
 
   private persist(): void {
+    if (this.batchDepth > 0) {
+      this.batchDirty = true;
+      return;
+    }
     this.saveData(this.data);
+  }
+
+  /**
+   * Coalesces the writes inside `fn` into a single persist.
+   *
+   * listDjSets() previously called addOrUpdateDjSet once per discovered folder, so an O(n) scan
+   * performed O(n) full-file rewrites of the entire database.
+   */
+  public batch<T>(fn: () => T): T {
+    this.batchDepth++;
+    try {
+      return fn();
+    } finally {
+      this.batchDepth--;
+      if (this.batchDepth === 0 && this.batchDirty) {
+        this.batchDirty = false;
+        this.saveData(this.data);
+      }
+    }
   }
 
   // --- Accounts ---
@@ -228,9 +295,7 @@ export class JsonStore {
     }
 
     const resolvedPath = path.resolve(set.path);
-    const existingIdx = this.data.djSets.findIndex(
-      (s) => path.resolve(s.path).toLowerCase() === resolvedPath.toLowerCase()
-    );
+    const existingIdx = this.data.djSets.findIndex((s) => pathKey(s.path) === pathKey(resolvedPath));
 
     const item: DjSetItem = {
       id: existingIdx !== -1 ? this.data.djSets[existingIdx].id : `djset_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -253,10 +318,8 @@ export class JsonStore {
   public deleteDjSet(pathOrId: string): boolean {
     if (!this.data.djSets) return false;
     const initialLen = this.data.djSets.length;
-    const resolved = path.resolve(pathOrId).toLowerCase();
-    this.data.djSets = this.data.djSets.filter(
-      (s) => s.id !== pathOrId && path.resolve(s.path).toLowerCase() !== resolved
-    );
+    const resolved = pathKey(pathOrId);
+    this.data.djSets = this.data.djSets.filter((s) => s.id !== pathOrId && pathKey(s.path) !== resolved);
     this.persist();
     return this.data.djSets.length < initialLen;
   }

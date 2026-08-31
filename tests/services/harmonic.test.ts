@@ -1,10 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseKeyToCamelot,
-  formatCamelotKey,
   getCamelotDistance,
   isHarmonicallyCompatible,
-  describeTransition,
   smartReorderTracks,
 } from '../../src/shared/harmonic.js';
 import { LocalTrackItem } from '../../src/shared/types.js';

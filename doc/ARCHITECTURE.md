@@ -12,6 +12,12 @@
 
 ---
 
+> **Where things are documented.** This file covers project intent, subsystem topology, and
+> authentication. `ARCHITECTURE.md` at the repository root covers the DSP and MIR algorithms, the
+> tagging and disk-safety model, the security model, and the numbered design-decision record.
+> `doc/IMPROVEMENTS.md` holds the architecture review that produced the Phase 7b hardening pass and
+> a record of what was implemented, changed shape, or deliberately deferred.
+
 ## 2. Reference Lineage & Prior Art
 
 WebDeeJayTools builds upon proven algorithms and reverse-engineering insights from several prior projects of mine:
@@ -63,6 +69,8 @@ WebDeeJayTools builds upon proven algorithms and reverse-engineering insights fr
 
 WebDeeJayTools relies on direct, zero-friction authentication by the user using the web browser's and users credentials, some minimal skills are required (ie: opening up DevTools and copying some values).
 
+> Note: Playwright-driven browser login and local browser-session auto-detection have been removed. Their implementations had already been reduced to functions that only threw, while keeping three heavyweight browser-automation packages in the dependency tree.
+
 ### Qobuz Authentication
 1. **Direct `user_auth_token`**: Users paste their active session token extracted from `https://play.qobuz.com` via DevTools (`F12` $\rightarrow$ Application $\rightarrow$ Cookies $\rightarrow$ `user_auth_token`).
 2. **Quick Importer (One-Way cURL / Cookie Parser)**:
@@ -97,9 +105,11 @@ WebDeeJayTools relies on direct, zero-friction authentication by the user using 
 ### 2. Audio Downloader & Metadata Engine (`src/server/services/downloader/`)
 - **Stream Writer**: Fetches signed audio stream URLs from Qobuz API and pipes them directly to disk.
 - **SSE Emission Throttling**: Downloader emits progress updates at $\ge 300\text{ms}$ intervals to prevent Node event loop and SSE buffer exhaustion during high-speed downloads.
-- **Metadata Injection**:
-  - **FLAC**: Injects standard Vorbis comments and embedded album artwork.
-  - **MP3 (320kbps)**: Injects ID3v2 tags (`TIT2`, `TPE1`, `TALB`, `TYER`, `TRCK`) and embedded APIC cover art via `node-id3`.
+- **Metadata Injection** (`src/server/services/tagging/`):
+  - **FLAC**: Vorbis comments and a `PICTURE` block, written by the project's own FLAC metadata writer. `node-id3` is deliberately not used here - it writes an ID3v2 container, which is invalid in FLAC and invisible to Rekordbox and Serato.
+  - **MP3 / WAV / AIFF**: ID3v2 tags (`TIT2`, `TPE1`, `TALB`, `TYER`, `TRCK`, `TBPM`, `TKEY`) and embedded APIC cover art via `node-id3`.
+  - **Unsupported containers**: the write is refused and reported as a failure, rather than returning success for a write that did nothing.
+  - **Every write is two-phase**: copy, mutate the copy, re-parse and verify it, then atomically swap. A rejected write leaves the original byte-identical. See `services/tagging/safeWrite.ts`.
 - **Formatting Templates**: Generates directories according to templates (e.g. `{artist} - {album} ({year})/{trackNumber} - {title}.flac`).
 - **M3U Generator**: Automatically creates UTF-8 `.m3u` / `.m3u8` playlist files in the downloaded album directory.
 
@@ -107,6 +117,18 @@ WebDeeJayTools relies on direct, zero-friction authentication by the user using 
 - Zero-native-dependency JSON store (`./data/db.json`).
 - Stores accounts, default download directories, preferred audio qualities, and naming templates.
 - Directory paths are relative to application root, making configuration and data completely portable.
+- Writes go temp-file-then-rename with a Windows retry. The file is never unlinked first.
+- **Credentials are stored unencrypted.** This is a deliberate trade for a portable tool - an OS keychain does not travel on a USB stick - so treat the drive itself as a credential. They are never sent to the client: `GET /api/accounts` returns presence flags and hints only (`src/server/util/redact.ts`).
+
+### 4. Local Server Security Model
+
+The embedded server holds full filesystem authority on a fixed loopback port, and is reachable by any page loaded in any browser on the machine. Three controls follow from that:
+
+- **Path containment** (`src/server/util/paths.ts`): every caller-supplied path must resolve inside an allowed root - the configured library and download directories, plus directories the user picked or scanned this session. Containment is checked with `path.relative`, not a string prefix, and symlink targets are re-checked. Without it, `/api/mp3/stream?path=...` is an arbitrary file read and `/api/mp3/delete` an arbitrary unlink.
+- **Loopback guard** (`src/server/middleware/localGuard.ts`): a `Host` allow-list defeats DNS rebinding, an `Origin` allow-list defeats cross-origin requests (which is what actually protects the simple `GET` routes, since those never trigger a CORS preflight), and the packaged build additionally requires a per-launch session token on every mutating request.
+- **Schema validation** (`src/shared/schemas.ts`): every body and query is parsed with zod at the route boundary.
+
+The Electron shell runs the renderer with `contextIsolation: true`, `nodeIntegration: false`, and `sandbox: true`, under a CSP that permits only same-origin resources plus remote cover art. The native folder dialog is used instead of shelling out to PowerShell, `osascript`, or `zenity`.
 
 ---
 

@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { scanLocalDirectory } from '../../src/server/services/mp3/scanner.js';
 import { createDjSet, deleteTracks } from '../../src/server/services/mp3/djset.js';
+import { clearSessionRoots, grantSessionRoot } from '../../src/server/util/paths.js';
 
 describe('MP3 Management Services', () => {
   const testBaseDir = path.resolve(process.cwd(), 'data', 'test_mp3_library');
@@ -15,9 +16,15 @@ describe('MP3 Management Services', () => {
     }
     await fs.promises.mkdir(testDownloadsDir, { recursive: true });
     await fs.promises.mkdir(testLibraryDir, { recursive: true });
+
+    // The filesystem guard only permits paths inside roots the user opted into. In the app that
+    // happens when a directory is picked or scanned; here we grant them explicitly.
+    clearSessionRoots();
+    grantSessionRoot(testBaseDir);
   });
 
   afterEach(async () => {
+    clearSessionRoots();
     if (fs.existsSync(testBaseDir)) {
       await fs.promises.rm(testBaseDir, { recursive: true, force: true });
     }

@@ -1,9 +1,17 @@
 import fs from 'fs';
 import path from 'path';
 import decodeAudio from 'audio-decode';
-import NodeID3 from 'node-id3';
+import * as musicMetadata from 'music-metadata';
 import { parseKeyToCamelot, formatCamelotKey } from '../../../shared/harmonic.js';
 import { AudioAnalysisResult } from '../../../shared/types.js';
+import { writeAnalysisTags } from '../tagging/index.js';
+
+/**
+ * Below this, a detection is treated as a guess and is never written to the user's files. A wrong
+ * key silently ruins harmonic mixing and is indistinguishable from a real one once on disk, so the
+ * bar for touching a library file is deliberately higher than the bar for showing a number.
+ */
+export const MIN_TAG_WRITE_CONFIDENCE = 0.35;
 
 // Pitch class names (0 = C, 1 = C#, ... 11 = B)
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -77,10 +85,14 @@ export function applyLowPassFilter(samples: Float32Array, sampleRate: number, cu
 
 /**
  * Detects BPM using Envelope Energy and Autocorrelation across the 65–195 BPM tempo range.
+ *
+ * Returns `bpm: null` when the input is too short or too flat to support a tempo estimate. It
+ * previously returned a hardcoded 128 with confidence 0, which callers then wrote to disk as if it
+ * had been measured.
  */
-export function detectBpmFromPcm(samples: Float32Array, sampleRate: number): { bpm: number; confidence: number } {
+export function detectBpmFromPcm(samples: Float32Array, sampleRate: number): { bpm: number | null; confidence: number } {
   if (!samples || samples.length < sampleRate * 2) {
-    return { bpm: 128, confidence: 0 };
+    return { bpm: null, confidence: 0 };
   }
 
   // 1. Filter low frequencies (kick/bass)
@@ -90,7 +102,7 @@ export function detectBpmFromPcm(samples: Float32Array, sampleRate: number): { b
   const windowSize = 512;
   const hopSize = 128;
   const numFrames = Math.floor((filtered.length - windowSize) / hopSize);
-  if (numFrames <= 0) return { bpm: 128, confidence: 0 };
+  if (numFrames <= 0) return { bpm: null, confidence: 0 };
 
   const envelope = new Float32Array(numFrames);
   for (let f = 0; f < numFrames; f++) {
@@ -138,6 +150,10 @@ export function detectBpmFromPcm(samples: Float32Array, sampleRate: number): { b
     }
   }
 
+  if (!isFinite(maxCorr) || maxCorr <= 0) {
+    return { bpm: null, confidence: 0 };
+  }
+
   let rawBpm = (60 * envelopeRate) / bestLag;
 
   // 5. Octave / Subharmonic check (e.g. if 64 BPM detected in dance music, boost to 128 BPM)
@@ -151,7 +167,25 @@ export function detectBpmFromPcm(samples: Float32Array, sampleRate: number): { b
   }
 
   const roundedBpm = Math.round(rawBpm * 10) / 10;
-  const confidence = Math.min(1, Math.max(0, maxCorr * 10));
+
+  // 6. Confidence as peak prominence.
+  //
+  // The raw autocorrelation magnitude scales with track loudness, so `maxCorr * 10` reported high
+  // confidence for anything loud regardless of how peaked the correlation actually was. Dividing
+  // the winning lag by the mean of all other lags is scale-invariant and measures the thing that
+  // actually predicts correctness: how far the winner stands above the field.
+  let sumOthers = 0;
+  let countOthers = 0;
+  for (const entry of correlations) {
+    if (entry.score === maxCorr) continue;
+    sumOthers += entry.score;
+    countOthers++;
+  }
+  const meanOthers = countOthers > 0 ? sumOthers / countOthers : 0;
+  const prominence = meanOthers > 0 ? maxCorr / meanOthers : 0;
+
+  // A flat autocorrelation gives a ratio near 1; a clean four-to-the-floor kick gives 2 or more.
+  const confidence = Math.min(1, Math.max(0, (prominence - 1) / 1.5));
 
   return { bpm: Math.round(roundedBpm), confidence };
 }
@@ -231,12 +265,12 @@ const FFT_2048 = new Radix2FFT(2048);
  * Detects Musical Key and Camelot code using 12-bin STFT Chromagram & Krumhansl-Schmuckler correlation.
  */
 export function detectKeyFromPcm(samples: Float32Array, sampleRate: number): {
-  key: string;
-  camelotKey: string;
+  key: string | null;
+  camelotKey: string | null;
   confidence: number;
 } {
   if (!samples || samples.length < sampleRate) {
-    return { key: 'C', camelotKey: '8B', confidence: 0 };
+    return { key: null, camelotKey: null, confidence: 0 };
   }
 
   const chromagram = new Float32Array(12);
@@ -245,7 +279,7 @@ export function detectKeyFromPcm(samples: Float32Array, sampleRate: number): {
   const numFrames = Math.min(60, Math.floor((samples.length - fftSize) / hopSize));
 
   if (numFrames <= 0) {
-    return { key: 'C', camelotKey: '8B', confidence: 0 };
+    return { key: null, camelotKey: null, confidence: 0 };
   }
 
   const magBuffer = new Float32Array(fftSize / 2);
@@ -273,10 +307,15 @@ export function detectKeyFromPcm(samples: Float32Array, sampleRate: number): {
     }
   }
 
-  // Normalize chromagram vector
+  // Normalize chromagram vector. A silent or DC-only frame set carries no tonal information at
+  // all, so report that rather than correlating a flat vector and returning whichever profile wins
+  // by rounding noise.
   let sumChroma = 0;
   for (let i = 0; i < 12; i++) sumChroma += chromagram[i];
-  const normalizedChroma = Array.from(chromagram).map((v) => (sumChroma > 0 ? v / sumChroma : 1 / 12));
+  if (sumChroma <= 0) {
+    return { key: null, camelotKey: null, confidence: 0 };
+  }
+  const normalizedChroma = Array.from(chromagram).map((v) => v / sumChroma);
 
   // Correlate with 12 Major and 12 Minor Krumhansl profiles
   let bestScore = -Infinity;
@@ -313,11 +352,42 @@ export function detectKeyFromPcm(samples: Float32Array, sampleRate: number): {
     }
   }
 
+  if (!isFinite(bestScore) || bestScore <= 0) {
+    return { key: null, camelotKey: null, confidence: 0 };
+  }
+
   return {
     key: bestKeyName,
     camelotKey: bestCamelot,
     confidence: Math.min(1, Math.max(0, bestScore)),
   };
+}
+
+/**
+ * Chooses how many bytes to read from the head of the file.
+ *
+ * A flat 8 MB cap covers ~200 seconds of 320kbps MP3 but only ~6 seconds of FLAC 24/192 - the
+ * format this app advertises - which starved the autocorrelation of the tens of seconds it needs.
+ * Sizing from the actual bitrate gives every format the same amount of *audio*.
+ */
+async function planReadWindow(filePath: string): Promise<{ readBytes: number; analysisSeconds: number }> {
+  const ANALYSIS_SECONDS = 60;
+  const MAX_READ_BYTES = 96 * 1024 * 1024;
+  const FALLBACK_READ_BYTES = 16 * 1024 * 1024;
+
+  try {
+    const meta = await musicMetadata.parseFile(filePath, { duration: false });
+    const bitrate = meta.format.bitrate;
+    if (typeof bitrate === 'number' && bitrate > 0) {
+      // bitrate is bits/sec; add a margin for the header and for frame alignment slack.
+      const bytes = Math.ceil((bitrate / 8) * ANALYSIS_SECONDS * 1.15) + 256 * 1024;
+      return { readBytes: Math.min(bytes, MAX_READ_BYTES), analysisSeconds: ANALYSIS_SECONDS };
+    }
+  } catch {
+    // Unparseable header - fall through to the fixed window.
+  }
+
+  return { readBytes: FALLBACK_READ_BYTES, analysisSeconds: ANALYSIS_SECONDS };
 }
 
 /**
@@ -342,9 +412,11 @@ export async function analyzeAudioTrack(
   }
 
   try {
-    // Read audio buffer (read up to 8 MB for fast decoding of core track segment)
+    // Read a bitrate-sized window rather than a fixed byte count, so hi-res FLAC gets the same
+    // number of seconds of audio to analyse as a 320kbps MP3 does.
     const fileStat = await fs.promises.stat(resolvedPath);
-    const readSize = Math.min(fileStat.size, 8 * 1024 * 1024);
+    const plan = await planReadWindow(resolvedPath);
+    const readSize = Math.min(fileStat.size, plan.readBytes);
     const fd = await fs.promises.open(resolvedPath, 'r');
     const buffer = Buffer.alloc(readSize);
     await fd.read(buffer, 0, readSize, 0);
@@ -359,11 +431,15 @@ export async function analyzeAudioTrack(
     const sampleRate = decoded.sampleRate || 44100;
     const channels = decoded.channelData;
 
-    // Mixdown to mono Float32Array
+    // Mixdown to mono Float32Array.
+    // Skip the intro (quiet, often beatless) but never skip so far that little is left to analyse.
     const totalSamples = channels[0].length;
-    // Take a 30-second slice from 15s to 45s (skips quiet intros)
     const startSample = Math.min(Math.floor(sampleRate * 15), Math.floor(totalSamples * 0.2));
-    const maxSamples = Math.min(totalSamples - startSample, sampleRate * 30);
+    const maxSamples = Math.max(0, Math.min(totalSamples - startSample, sampleRate * 45));
+
+    if (maxSamples < sampleRate * 2) {
+      throw new Error('Decoded audio is too short to analyse');
+    }
 
     const mono = new Float32Array(maxSamples);
     if (channels.length >= 2) {
@@ -385,9 +461,24 @@ export async function analyzeAudioTrack(
     // 2. Key Detection
     const keyResult = detectKeyFromPcm(mono, sampleRate);
 
+    const confidence = Math.round(((bpmResult.confidence + keyResult.confidence) / 2) * 100) / 100;
+    const detected = bpmResult.bpm !== null && keyResult.camelotKey !== null;
+
     let tagsWritten = false;
+    let tagError: string | undefined;
+
     if (options?.writeTags) {
-      tagsWritten = await saveTrackTags(resolvedPath, bpmResult.bpm, keyResult.camelotKey);
+      if (!detected) {
+        tagError = 'Analysis produced no usable BPM or key; nothing was written.';
+      } else if (confidence < MIN_TAG_WRITE_CONFIDENCE) {
+        tagError = `Confidence ${confidence.toFixed(2)} is below the ${MIN_TAG_WRITE_CONFIDENCE} threshold; nothing was written.`;
+      } else {
+        const outcome = await writeAnalysisTags(resolvedPath, bpmResult.bpm!, keyResult.camelotKey!);
+        tagsWritten = outcome.success;
+        if (!outcome.success) {
+          tagError = outcome.error;
+        }
+      }
     }
 
     return {
@@ -395,8 +486,10 @@ export async function analyzeAudioTrack(
       bpm: bpmResult.bpm,
       key: keyResult.key,
       camelotKey: keyResult.camelotKey,
-      confidence: Math.round(((bpmResult.confidence + keyResult.confidence) / 2) * 100) / 100,
+      confidence,
       tagsWritten,
+      lowConfidence: detected && confidence < MIN_TAG_WRITE_CONFIDENCE,
+      error: tagError,
     };
   } catch (err: any) {
     console.error(`[AudioAnalyzer] Failed to analyze ${filePath}:`, err);
@@ -413,22 +506,15 @@ export async function analyzeAudioTrack(
 }
 
 /**
- * Saves detected BPM and Key directly into audio file tags on disk.
- * Supports MP3, FLAC, WAV, and AIFF.
+ * Saves detected BPM and Key into audio file tags on disk.
+ *
+ * Delegates to the two-phase writer: the original file is copied, tagged, re-parsed, and only
+ * replaced once the values have been read back out of the candidate.
  */
 export async function saveTrackTags(filePath: string, bpm: number, keyOrCamelot: string): Promise<boolean> {
-  try {
-    const tags: NodeID3.Tags = {
-      bpm: String(bpm),
-      initialKey: keyOrCamelot,
-    };
-
-    // NodeID3 supports writing/updating ID3 frames on MP3, FLAC, WAV, AIFF
-    const success = NodeID3.update(tags, filePath);
-    return success === true;
-  } catch (err) {
-    console.error(`[AudioAnalyzer] Failed to write tags to ${filePath}:`, err);
-    return false;
+  const outcome = await writeAnalysisTags(filePath, bpm, keyOrCamelot);
+  if (!outcome.success) {
+    console.error(`[AudioAnalyzer] Failed to write tags to ${filePath}: ${outcome.error}`);
   }
+  return outcome.success;
 }
-

@@ -6,6 +6,12 @@ import {
   detectKeyFromPcm,
 } from '../../src/server/services/mp3/analyzer.js';
 
+/**
+ * The important guarantee below is the negative one: a failed detection must report null, never a
+ * plausible-looking default. The previous implementation returned a hardcoded 128 BPM / 8B key with
+ * confidence 0, which callers then wrote into the user's files as if it had been measured.
+ */
+
 describe('Audio DSP Analyzer', () => {
   it('computes exact Pearson correlation coefficient', () => {
     const a = [1, 2, 3, 4, 5];
@@ -79,5 +85,54 @@ describe('Audio DSP Analyzer', () => {
     expect(res.key).toBeDefined();
     expect(res.camelotKey).toBeDefined();
     expect(res.confidence).toBeGreaterThan(0);
+  });
+
+  it('reports null rather than a default when the signal is too short to analyse', () => {
+    const sampleRate = 44100;
+    const tooShort = new Float32Array(sampleRate);
+
+    const bpm = detectBpmFromPcm(tooShort, sampleRate);
+    expect(bpm.bpm).toBeNull();
+    expect(bpm.confidence).toBe(0);
+
+    const key = detectKeyFromPcm(new Float32Array(100), sampleRate);
+    expect(key.key).toBeNull();
+    expect(key.camelotKey).toBeNull();
+    expect(key.confidence).toBe(0);
+  });
+
+  it('reports null rather than a default for silence', () => {
+    const sampleRate = 22050;
+    const silence = new Float32Array(sampleRate * 5);
+
+    const bpm = detectBpmFromPcm(silence, sampleRate);
+    expect(bpm.bpm).toBeNull();
+
+    const key = detectKeyFromPcm(silence, sampleRate);
+    expect(key.camelotKey).toBeNull();
+  });
+
+  it('scores a clean rhythmic pulse more confidently than noise', () => {
+    const sampleRate = 22050;
+
+    const pulse = new Float32Array(sampleRate * 10);
+    const interval = Math.round((60 / 128) * sampleRate);
+    for (let pos = 0; pos < pulse.length; pos += interval) {
+      for (let i = 0; i < Math.min(Math.round(sampleRate * 0.05), pulse.length - pos); i++) {
+        const env = 1 - i / (sampleRate * 0.05);
+        pulse[pos + i] += Math.sin((2 * Math.PI * 80 * i) / sampleRate) * env;
+      }
+    }
+
+    // Same waveform at a tenth of the amplitude. Confidence must not follow loudness, which is
+    // what the old maxCorr * 10 formula did.
+    const quiet = new Float32Array(pulse.length);
+    for (let i = 0; i < pulse.length; i++) quiet[i] = pulse[i] * 0.1;
+
+    const loudResult = detectBpmFromPcm(pulse, sampleRate);
+    const quietResult = detectBpmFromPcm(quiet, sampleRate);
+
+    expect(loudResult.bpm).toBe(quietResult.bpm);
+    expect(Math.abs(loudResult.confidence - quietResult.confidence)).toBeLessThan(0.05);
   });
 });

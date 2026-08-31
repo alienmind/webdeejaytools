@@ -86,18 +86,63 @@
 
 ---
 
+### Phase 7b: Hardening & Architecture Pass (completed)
+- [x] Filesystem containment guard on every path crossing the API boundary (`util/paths.ts`) + route-level regression tests.
+- [x] Loopback `Host`/`Origin` guard and per-launch session token (`middleware/localGuard.ts`).
+- [x] Native Electron folder dialog; no shell command strings built from request data.
+- [x] zod request schemas at every route boundary (`shared/schemas.ts`).
+- [x] Credentials redacted from all API responses (`util/redact.ts`).
+- [x] Real FLAC Vorbis comment writer, replacing invalid ID3-on-FLAC; repairs previously damaged files.
+- [x] Two-phase verified tag writes: copy, mutate, verify, atomic swap (`tagging/safeWrite.ts`).
+- [x] Analysis moved into a `worker_threads` pool with cancellable jobs; no more event-loop blocking.
+- [x] BPM/key return `null` on failure; low-confidence results are never written to disk.
+- [x] Bitrate-aware read window so hi-res FLAC gets the same amount of audio to analyse as MP3.
+- [x] `db.json` write no longer unlinks before rename; DJ set discovery batched into one persist.
+- [x] Frontend: hash router with lazy routes, error boundary, toast layer, app-data context.
+- [x] MP3 view decomposed into hooks (`useLibrary`, `useAudioPreview`, `useAnalysis`, `useDjSets`) plus a `TrackTable` component.
+- [x] Responsive pass: sidebar drawer below `md`, card list instead of a 12-column table, dnd-kit reordering that works on touch.
+- [x] Self-hosted fonts; dead Playwright/Puppeteer dependencies removed.
+
 ### Phase 8: Extended DJ Workflow & Library Management
-- [ ] **Local MP3 Collection Management**:
-  - Library scanning and recursive folder indexing.
-  - Identification of duplicate audio tracks and missing metadata.
-  - Batch in-place ID3v2/Vorbis tag editing directly on disk.
-- [ ] **Automatic BPM and Key Detection**:
-  - Fast audio signal analysis to compute precise tempo (BPM).
-  - Harmonic key detection (standard notation & Camelot / Open Key wheels).
-  - Direct embedding of BPM & Key tags into ID3/Vorbis headers.
-- [ ] **Automatic Playlist Building (Genres, Styles & Moods)**:
-  - Smart playlist generation based on genre classification, energy levels, and mood profiles.
-  - Harmonic playlist sequencing (Camelot wheel compatible progressions).
-  - Export to M3U, Rekordbox XML, Traktor NML, and streaming targets.
+
+- **Local MP3 Collection Management**:
+  - [x] Library scanning and recursive folder indexing (`services/mp3/scanner.ts`).
+  - [x] Audio preview with HTTP range streaming, filtering, sorting, pagination.
+  - [x] DJ set flattening (move/copy, cross-drive `EXDEV` fallback, empty-folder cleanup).
+  - [x] Physical deletion with containment guarding.
+  - [ ] Identification of duplicate audio tracks and bitrate anomalies.
+  - [ ] Batch in-place ID3v2/Vorbis tag editing from the UI (the write path exists in
+        `services/tagging/`; the editor UI does not).
+
+- **Automatic BPM and Key Detection**:
+  - [x] Fast audio signal analysis to compute tempo (BPM) - bandpass envelope autocorrelation.
+  - [x] Harmonic key detection (standard notation & Camelot / Open Key wheels) - Radix-2 FFT
+        chromagram with Krumhansl-Kessler correlation.
+  - [x] Direct embedding of BPM & Key tags into ID3 (MP3/WAV/AIFF) and Vorbis (FLAC) headers.
+  - [x] Multi-core `worker_threads` execution with cancellable jobs and live SSE progress.
+  - [x] Confidence gating: a low-confidence detection is displayed but never written to disk.
+  - [ ] Beat-grid / first-downbeat detection (needed for true CDJ grid export).
+
+- **Automatic Playlist Building (Genres, Styles & Moods)**:
+  - [x] Harmonic playlist sequencing (Camelot wheel compatible progressions, BPM energy curves).
+  - [x] Export to M3U8, M3U, Rekordbox XML, CSV/TXT, and JSON.
+  - [ ] Smart playlist generation based on genre classification, energy levels, and mood profiles.
+  - [ ] Traktor NML export.
+  - [ ] Direct export to streaming targets.
+
 - [ ] **Tidal Service Adapter**: 3-way cross-service conversion (Spotify $\leftrightarrow$ Qobuz $\leftrightarrow$ Tidal).
+      The adapter/registry seam in `services/base/` is ready for this: a new folder plus one
+      registry line.
 - [ ] **Auto-Updater**: Automatic update checks for the portable desktop application.
+
+### Phase 9: Carried Forward from the Architecture Review
+
+Deferred deliberately during the Phase 7b hardening pass; see `doc/IMPROVEMENTS.md` section 9.
+
+- [ ] Optional passphrase-derived encryption for `data/db.json` (`scrypt` + `AES-256-GCM`, both in
+      Node core). Deferred because it changes the launch UX, not because it is hard.
+- [ ] Converge the download queue onto the `AnalysisQueue` shape: job persistence across restart and
+      per-item cancel.
+- [ ] Extract the remaining modal markup in `pages/Mp3Management/index.tsx` into components. The
+      state logic is already in hooks; what is left is ~1500 lines of JSX.
+- [ ] Move the library index out of `db.json` into its own file before it grows to 10k tracks.

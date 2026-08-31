@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   FolderOpen,
   RefreshCw,
@@ -10,9 +10,6 @@ import {
   Clock,
   HardDrive,
   CheckSquare,
-  Square,
-  Copy,
-  Check,
   AlertTriangle,
   AlertOctagon,
   Trash2,
@@ -28,7 +25,6 @@ import {
   Activity,
   Compass,
   ArrowRight,
-  GripVertical,
   Play,
   Pause,
   Volume2,
@@ -37,7 +33,7 @@ import {
   FileText,
   Download,
 } from 'lucide-react';
-import { AppSettings, ScanDirectoryResult, CreateDjSetResult, LocalTrackItem, DjSetItem, AudioAnalysisResult } from '../../../shared/types.js';
+import { AppSettings, LocalTrackItem } from '../../../shared/types.js';
 import { api } from '../../services/api.js';
 import {
   smartReorderTracks,
@@ -47,76 +43,131 @@ import {
 } from '../../../shared/harmonic.js';
 import { exportPlaylist, PlaylistExportFormat } from '../../../shared/playlistExporter.js';
 import { CamelotWheelModal } from '../../components/CamelotWheelModal.js';
+import { useToast } from '../../components/Toast.js';
+import { TrackTable } from './components/TrackTable.js';
+import { useLibrary } from './useLibrary.js';
+import { useAudioPreview } from './useAudioPreview.js';
+import { useAnalysis } from './useAnalysis.js';
+import { useDjSets } from './useDjSets.js';
+import { basename, formatBytes, formatDuration, formatTotalDuration } from './utils.js';
 
 interface Mp3ManagementPageProps {
   settings: AppSettings;
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
-}
-
-function formatDuration(seconds?: number): string {
-  if (!seconds || seconds <= 0) return '—';
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
-}
-
-function formatTotalDuration(seconds: number): string {
-  if (!seconds || seconds <= 0) return '0m';
-  const hours = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  if (hours > 0) {
-    return `${hours}h ${mins}m`;
-  }
-  return `${mins}m`;
-}
-
 export const Mp3ManagementPage: React.FC<Mp3ManagementPageProps> = ({ settings }) => {
-  // Directory state
-  const [scanPath, setScanPath] = useState<string>(
-    settings.defaultDownloadDir || settings.defaultLibraryDir || ''
-  );
-  const [isScanning, setIsScanning] = useState<boolean>(false);
-  const [isBrowsing, setIsBrowsing] = useState<boolean>(false);
-  const [scanResult, setScanResult] = useState<ScanDirectoryResult | null>(null);
-  const [scanError, setScanError] = useState<string | null>(null);
+  const toast = useToast();
 
-  // Filter & Search
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [formatFilter, setFormatFilter] = useState<string>('all');
-  const [sortBy, setSortBy] = useState<'custom' | 'artist' | 'title' | 'album' | 'bpm' | 'key' | 'duration' | 'size'>('artist');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  // Library state (scan, filters, sorting, pagination, selection, ordering) lives in useLibrary.
+  const library = useLibrary(settings);
+  const {
+    scanPath,
+    setScanPath,
+    isScanning,
+    isBrowsing,
+    scanResult,
+    scanError,
+    searchQuery,
+    setSearchQuery,
+    formatFilter,
+    setFormatFilter,
+    sortBy,
+    setSortBy,
+    sortOrder,
+    setSortOrder,
+    pageSize,
+    setPageSize,
+    currentPage,
+    setCurrentPage,
+    totalPages,
+    paginatedTracks,
+    startRowIndex,
+    endRowIndex,
+    pageNumbers,
+    filteredTracks,
+    totalSizeBytes,
+    totalDurationSeconds,
+    selectedTracksList,
+    selectedSizeBytes,
+    selectedIds,
+    setTrackOrder,
+    moveTrack,
+    patchTrackByPath,
+  } = library;
 
-  // Pagination State (10, 20, 50, 'all')
-  const [pageSize, setPageSize] = useState<number | 'all'>(10);
-  const [currentPage, setCurrentPage] = useState<number>(1);
+  const handleScan = library.scan;
+  const handleBrowseFolder = library.browseFolder;
+  const handleToggleSelectAll = library.toggleSelectAll;
+  const handleToggleTrack = library.toggleTrack;
 
-  // Selected tracks for DJ Set
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Audio preview player.
+  const preview = useAudioPreview(() => filteredTracks);
+  const {
+    playingTrack,
+    isPlaying,
+    playbackTime,
+    playbackDuration,
+    volume,
+    isMuted,
+    play: handlePlayTrack,
+    togglePlayPause: handleTogglePlayPause,
+    next: handleNextTrack,
+    previous: handlePrevTrack,
+    seek: handleSeek,
+    changeVolume: handleVolumeChange,
+    toggleMute: handleToggleMute,
+    close: handleClosePlayer,
+  } = preview;
+
+  // DJ sets: creation, the created-set list, and physical deletion.
+  const djSetState = useDjSets(settings, () => handleScan());
+  const {
+    djSets,
+    sessionName,
+    setSessionName,
+    customTargetDir,
+    setCustomTargetDir,
+    copyMode,
+    setCopyMode,
+    cleanEmptyFolders,
+    setCleanEmptyFolders,
+    isCreatingSet,
+    isBrowsingTarget,
+    djSetResult,
+    setDjSetResult,
+    isDeleting,
+    deleteResult,
+    setDeleteResult,
+  } = djSetState;
+
+  // BPM and key analysis, driven by the server-side job API.
+  const analysis = useAnalysis({
+    onTrackAnalyzed: patchTrackByPath,
+    onFinished: () => handleScan(),
+  });
+  const {
+    isAnalyzing,
+    writeTags: analyzeWriteTags,
+    setWriteTags: setAnalyzeWriteTags,
+    scope: analyzeScope,
+    setScope: setAnalyzeScope,
+    results: analyzeResults,
+    liveResults: analyzeLiveResults,
+    progress: rawAnalyzeProgress,
+  } = analysis;
+
+  // Kept in the shape the existing markup expects.
+  const analyzeProgress = rawAnalyzeProgress;
+
   const [copiedPathId, setCopiedPathId] = useState<string | null>(null);
 
-  // DJ Set Modal
+  // DJ Set modal
   const [isDjModalOpen, setIsDjModalOpen] = useState<boolean>(false);
-  const [sessionName, setSessionName] = useState<string>('');
-  const [customTargetDir, setCustomTargetDir] = useState<string>('');
-  const [copyMode, setCopyMode] = useState<boolean>(false); // default: false (moves files physically)
-  const [cleanEmptyFolders, setCleanEmptyFolders] = useState<boolean>(true);
-  const [isCreatingSet, setIsCreatingSet] = useState<boolean>(false);
-  const [djSetResult, setDjSetResult] = useState<CreateDjSetResult | null>(null);
-  const [isBrowsingTarget, setIsBrowsingTarget] = useState<boolean>(false);
 
-  // Delete Modal state
+  // Delete modal
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState<boolean>(false);
-  const [isDeleting, setIsDeleting] = useState<boolean>(false);
-  const [deleteResult, setDeleteResult] = useState<{ success: boolean; count: number; errors: any[] } | null>(null);
 
-  // Smart Reorder Modal state (Camelot Wheel & BPM Dynamics)
+  // Smart Reorder modal (Camelot wheel & BPM dynamics)
   const [isSmartReorderModalOpen, setIsSmartReorderModalOpen] = useState<boolean>(false);
   const [useBpm, setUseBpm] = useState<boolean>(true);
   const [useKey, setUseKey] = useState<boolean>(true);
@@ -124,24 +175,11 @@ export const Mp3ManagementPage: React.FC<Mp3ManagementPageProps> = ({ settings }
   const [bpmCurve, setBpmCurve] = useState<'wave' | 'ascending'>('wave');
   const [smartReorderSuccess, setSmartReorderSuccess] = useState<boolean>(false);
 
-  // Camelot Wheel Modal state
+  // Camelot wheel modal
   const [isCamelotModalOpen, setIsCamelotModalOpen] = useState<boolean>(false);
   const [selectedCamelotKey, setSelectedCamelotKey] = useState<string | undefined>(undefined);
 
-  // Drag & Drop manual tracklist reordering state
-  const [draggedTrackId, setDraggedTrackId] = useState<string | null>(null);
-  const [dragOverTrackId, setDragOverTrackId] = useState<string | null>(null);
-
-  // Audio Preview Player state
-  const [playingTrack, setPlayingTrack] = useState<LocalTrackItem | null>(null);
-  const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [playbackTime, setPlaybackTime] = useState<number>(0);
-  const [playbackDuration, setPlaybackDuration] = useState<number>(0);
-  const [volume, setVolume] = useState<number>(0.85);
-  const [isMuted, setIsMuted] = useState<boolean>(false);
-  const audioRef = React.useRef<HTMLAudioElement | null>(null);
-
-  // Export Playlist Modal state
+  // Export playlist modal
   const [isExportPlaylistModalOpen, setIsExportPlaylistModalOpen] = useState<boolean>(false);
   const [exportPlaylistName, setExportPlaylistName] = useState<string>('DJ_Set');
   const [exportFormat, setExportFormat] = useState<PlaylistExportFormat>('m3u8');
@@ -150,154 +188,12 @@ export const Mp3ManagementPage: React.FC<Mp3ManagementPageProps> = ({ settings }
   const [exportScope, setExportScope] = useState<'all' | 'selected'>('all');
   const [exportToastMessage, setExportToastMessage] = useState<string | null>(null);
 
-  // Created DJ Sets List state
-  const [djSets, setDjSets] = useState<DjSetItem[]>([]);
-
-  // Analyze BPM & Key Modal state
+  // Analyze modal
   const [isAnalyzeModalOpen, setIsAnalyzeModalOpen] = useState<boolean>(false);
-  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
-  const [analyzeWriteTags, setAnalyzeWriteTags] = useState<boolean>(true);
-  const [analyzeScope, setAnalyzeScope] = useState<'missing' | 'all' | 'selected'>('missing');
-  const [analyzeResults, setAnalyzeResults] = useState<AudioAnalysisResult[] | null>(null);
-  const [analyzeLiveResults, setAnalyzeLiveResults] = useState<AudioAnalysisResult[]>([]);
-  const [analyzeProgress, setAnalyzeProgress] = useState<{
-    current: number;
-    total: number;
-    percent: number;
-    currentFileName?: string;
-  } | null>(null);
 
-  const loadDjSets = async () => {
-    try {
-      const sets = await api.listDjSets();
-      setDjSets(sets);
-    } catch (e) {
-      console.error('Failed to load DJ sets:', e);
-    }
-  };
+  const handleBrowseTargetDir = () => djSetState.browseTargetDir(scanPath);
 
-  useEffect(() => {
-    loadDjSets();
-  }, [settings.defaultLibraryDir]);
-
-  // Auto-scan initial path on load if available
-  useEffect(() => {
-    const initial = settings.defaultDownloadDir || settings.defaultLibraryDir;
-    if (initial) {
-      setScanPath(initial);
-      handleScan(initial);
-    }
-  }, [settings.defaultDownloadDir, settings.defaultLibraryDir]);
-
-  const handleScan = async (pathOverride?: string) => {
-    const target = pathOverride || scanPath;
-    if (!target.trim()) return;
-
-    try {
-      setIsScanning(true);
-      setScanError(null);
-      const res = await api.scanLocalDirectory(target.trim());
-      setScanResult(res);
-      // Select all by default
-      const allIds = new Set(res.tracks.map((t) => t.id));
-      setSelectedIds(allIds);
-      setCurrentPage(1);
-    } catch (err: any) {
-      console.error('Scan error:', err);
-      setScanError(err.message || 'Failed to scan directory');
-    } finally {
-      setIsScanning(false);
-    }
-  };
-
-  const handleBrowseFolder = async () => {
-    try {
-      setIsBrowsing(true);
-      const res = await api.browseDirectory(scanPath, 'Select Music Folder to Scan');
-      if (!res.canceled && res.path) {
-        setScanPath(res.path);
-        handleScan(res.path);
-      }
-    } catch (err) {
-      console.error('Browse directory failed:', err);
-    } finally {
-      setIsBrowsing(false);
-    }
-  };
-
-  const handleBrowseTargetDir = async () => {
-    try {
-      setIsBrowsingTarget(true);
-      const base = customTargetDir || settings.defaultLibraryDir || scanPath;
-      const res = await api.browseDirectory(base, 'Select Target Library Folder');
-      if (!res.canceled && res.path) {
-        setCustomTargetDir(res.path);
-      }
-    } catch (err) {
-      console.error('Browse target failed:', err);
-    } finally {
-      setIsBrowsingTarget(false);
-    }
-  };
-
-  // Reset page when filters change
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery, formatFilter, sortBy, sortOrder, pageSize]);
-
-  // Filtered and Sorted tracks
-  const filteredTracks = useMemo(() => {
-    if (!scanResult) return [];
-
-    let list = scanResult.tracks.filter((t) => {
-      // Format filter
-      if (formatFilter !== 'all') {
-        if (!t.extension.toLowerCase().includes(formatFilter.toLowerCase())) {
-          return false;
-        }
-      }
-
-      // Search query
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const matchesTitle = t.title.toLowerCase().includes(q);
-        const matchesArtist = t.artist.toLowerCase().includes(q);
-        const matchesAlbum = t.album.toLowerCase().includes(q);
-        const matchesPath = t.relativeSubPath.toLowerCase().includes(q) || t.fileName.toLowerCase().includes(q);
-        return matchesTitle || matchesArtist || matchesAlbum || matchesPath;
-      }
-
-      return true;
-    });
-
-    // Sorting (skip when in custom smart sequence order)
-    if (sortBy !== 'custom') {
-      list.sort((a, b) => {
-        let comparison = 0;
-        if (sortBy === 'artist') {
-          comparison = a.artist.localeCompare(b.artist) || a.title.localeCompare(b.title);
-        } else if (sortBy === 'title') {
-          comparison = a.title.localeCompare(b.title);
-        } else if (sortBy === 'album') {
-          comparison = a.album.localeCompare(b.album) || (a.trackNumber || 0) - (b.trackNumber || 0);
-        } else if (sortBy === 'bpm') {
-          comparison = (a.bpm || 0) - (b.bpm || 0);
-        } else if (sortBy === 'key') {
-          comparison = (a.key || '').localeCompare(b.key || '');
-        } else if (sortBy === 'duration') {
-          comparison = (a.durationSec || 0) - (b.durationSec || 0);
-        } else if (sortBy === 'size') {
-          comparison = a.fileSize - b.fileSize;
-        }
-
-        return sortOrder === 'asc' ? comparison : -comparison;
-      });
-    }
-
-    return list;
-  }, [scanResult, searchQuery, formatFilter, sortBy, sortOrder]);
-
-  // Live preview computation for Smart Reorder Modal
+  // Live preview computation for Smart Reorder Modal  // Live preview computation for Smart Reorder Modal
   const smartReorderPreview: SmartReorderResult | null = useMemo(() => {
     if (!scanResult || scanResult.tracks.length === 0) return null;
     const targetTracks =
@@ -330,160 +226,16 @@ export const Mp3ManagementPage: React.FC<Mp3ManagementPageProps> = ({ settings }
       nextTracks = smartReorderPreview.tracks;
     }
 
-    setScanResult({
-      ...scanResult,
-      tracks: nextTracks,
-    });
-    setSortBy('custom');
+    setTrackOrder(nextTracks);
     setCurrentPage(1);
     setIsSmartReorderModalOpen(false);
     setSmartReorderSuccess(true);
     setTimeout(() => setSmartReorderSuccess(false), 4000);
   };
 
-  // Drag and drop manual reorder handlers
-  const handleDragStart = (e: React.DragEvent, id: string) => {
-    setDraggedTrackId(id);
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', id);
-  };
-
-  const handleDragOver = (e: React.DragEvent, id: string) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    if (dragOverTrackId !== id) {
-      setDragOverTrackId(id);
-    }
-  };
-
-  const handleDrop = (e: React.DragEvent, targetId: string) => {
-    e.preventDefault();
-    if (!draggedTrackId || draggedTrackId === targetId || !scanResult) {
-      setDraggedTrackId(null);
-      setDragOverTrackId(null);
-      return;
-    }
-
-    const fromIdx = scanResult.tracks.findIndex((t) => t.id === draggedTrackId);
-    const toIdx = scanResult.tracks.findIndex((t) => t.id === targetId);
-
-    if (fromIdx === -1 || toIdx === -1) {
-      setDraggedTrackId(null);
-      setDragOverTrackId(null);
-      return;
-    }
-
-    const nextTracks = [...scanResult.tracks];
-    const [moved] = nextTracks.splice(fromIdx, 1);
-    nextTracks.splice(toIdx, 0, moved);
-
-    setScanResult({
-      ...scanResult,
-      tracks: nextTracks,
-    });
-    setSortBy('custom');
-    setDraggedTrackId(null);
-    setDragOverTrackId(null);
-  };
-
-  const handleDragEnd = () => {
-    setDraggedTrackId(null);
-    setDragOverTrackId(null);
-  };
-
-  // Audio Preview Player Handlers
-  const handlePlayTrack = (track: LocalTrackItem) => {
-    if (playingTrack?.id === track.id) {
-      if (isPlaying) {
-        audioRef.current?.pause();
-        setIsPlaying(false);
-      } else {
-        audioRef.current?.play().catch((err) => console.error('Audio play error:', err));
-        setIsPlaying(true);
-      }
-      return;
-    }
-
-    setPlayingTrack(track);
-    setIsPlaying(true);
-    setPlaybackTime(0);
-    setPlaybackDuration(track.durationSec || 0);
-
-    if (audioRef.current) {
-      audioRef.current.src = api.getStreamUrl(track.filePath);
-      audioRef.current.play().catch((err) => console.error('Audio play error:', err));
-    }
-  };
-
-  const handleTogglePlayPause = () => {
-    if (!audioRef.current || !playingTrack) return;
-    if (isPlaying) {
-      audioRef.current.pause();
-      setIsPlaying(false);
-    } else {
-      audioRef.current.play().catch((err) => console.error('Audio play error:', err));
-      setIsPlaying(true);
-    }
-  };
-
-  const handleNextTrack = () => {
-    if (!playingTrack || !scanResult) return;
-    const currentIdx = filteredTracks.findIndex((t) => t.id === playingTrack.id);
-    if (currentIdx !== -1 && currentIdx < filteredTracks.length - 1) {
-      handlePlayTrack(filteredTracks[currentIdx + 1]);
-    }
-  };
-
-  const handlePrevTrack = () => {
-    if (!playingTrack || !scanResult) return;
-    const currentIdx = filteredTracks.findIndex((t) => t.id === playingTrack.id);
-    if (currentIdx > 0) {
-      handlePlayTrack(filteredTracks[currentIdx - 1]);
-    }
-  };
-
-  const handleSeek = (newTime: number) => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = newTime;
-      setPlaybackTime(newTime);
-    }
-  };
-
-  const handleVolumeChange = (newVol: number) => {
-    setVolume(newVol);
-    if (audioRef.current) {
-      audioRef.current.volume = newVol;
-    }
-    if (newVol > 0 && isMuted) {
-      setIsMuted(false);
-    }
-  };
-
-  const handleToggleMute = () => {
-    if (!audioRef.current) return;
-    const nextMuted = !isMuted;
-    setIsMuted(nextMuted);
-    audioRef.current.muted = nextMuted;
-  };
-
-  const handleClosePlayer = () => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.src = '';
-    }
-    setPlayingTrack(null);
-    setIsPlaying(false);
-    setPlaybackTime(0);
-  };
-
-  // Export Playlist Handlers
+  // Export Playlist Handlers  // Export Playlist Handlers
   const handleOpenExportModal = () => {
-    if (scanPath) {
-      const folderName = scanPath.split(/[\/\\]/).filter(Boolean).pop() || 'DJ_Set';
-      setExportPlaylistName(folderName);
-    } else {
-      setExportPlaylistName('DJ_Set');
-    }
+    setExportPlaylistName(scanPath ? basename(scanPath) || 'DJ_Set' : 'DJ_Set');
     setExportScope(selectedIds.size > 0 ? 'selected' : 'all');
     setIsExportPlaylistModalOpen(true);
   };
@@ -520,88 +272,17 @@ export const Mp3ManagementPage: React.FC<Mp3ManagementPageProps> = ({ settings }
     setTimeout(() => setExportToastMessage(null), 4500);
   };
 
-  // Total pages and Paginated tracks slice
-  const totalPages = useMemo(() => {
-    if (pageSize === 'all' || filteredTracks.length === 0) return 1;
-    return Math.ceil(filteredTracks.length / pageSize);
-  }, [filteredTracks.length, pageSize]);
-
-  const paginatedTracks = useMemo(() => {
-    if (pageSize === 'all') return filteredTracks;
-    const start = (currentPage - 1) * pageSize;
-    return filteredTracks.slice(start, start + pageSize);
-  }, [filteredTracks, currentPage, pageSize]);
-
-  const startRowIndex = filteredTracks.length === 0 ? 0 : pageSize === 'all' ? 1 : (currentPage - 1) * pageSize + 1;
-  const endRowIndex = pageSize === 'all' ? filteredTracks.length : Math.min(currentPage * pageSize, filteredTracks.length);
-
-  // Helper for generating page buttons
-  const pageNumbers = useMemo(() => {
-    if (totalPages <= 7) {
-      return Array.from({ length: totalPages }, (_, i) => i + 1);
-    }
-    if (currentPage <= 4) {
-      return [1, 2, 3, 4, 5, '...', totalPages];
-    }
-    if (currentPage >= totalPages - 3) {
-      return [1, '...', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
-    }
-    return [1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages];
-  }, [totalPages, currentPage]);
-
-  // Statistics
-  const totalSizeBytes = useMemo(() => {
-    return (scanResult?.tracks || []).reduce((acc, t) => acc + t.fileSize, 0);
-  }, [scanResult]);
-
-  const totalDurationSeconds = useMemo(() => {
-    return (scanResult?.tracks || []).reduce((acc, t) => acc + (t.durationSec || 0), 0);
-  }, [scanResult]);
-
-  const selectedTracksList = useMemo(() => {
-    if (!scanResult) return [];
-    return scanResult.tracks.filter((t) => selectedIds.has(t.id));
-  }, [scanResult, selectedIds]);
-
-  const selectedSizeBytes = useMemo(() => {
-    return selectedTracksList.reduce((acc, t) => acc + t.fileSize, 0);
-  }, [selectedTracksList]);
-
-  // Selection handlers
-  const handleToggleSelectAll = () => {
-    if (selectedIds.size === filteredTracks.length && filteredTracks.length > 0) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(filteredTracks.map((t) => t.id)));
-    }
-  };
-
-  const handleToggleTrack = (id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  };
-
   const handleCopyPath = (filePath: string, id: string) => {
-    navigator.clipboard.writeText(filePath);
+    void navigator.clipboard.writeText(filePath).catch(() => {
+      toast.error('Could not copy the path to the clipboard');
+    });
     setCopiedPathId(id);
     setTimeout(() => setCopiedPathId(null), 2000);
   };
 
   // Open DJ Set Modal
   const handleOpenDjModal = () => {
-    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '_');
-    setSessionName(`DJ_Set_${dateStr}`);
-    setCustomTargetDir('');
-    setCopyMode(false); // Default: move files physically
-    setCleanEmptyFolders(true);
-    setDjSetResult(null);
+    djSetState.prepareCreate();
     setIsDjModalOpen(true);
   };
 
@@ -613,164 +294,29 @@ export const Mp3ManagementPage: React.FC<Mp3ManagementPageProps> = ({ settings }
 
   // Open BPM & Key Analysis Modal
   const handleOpenAnalyzeModal = () => {
-    setAnalyzeResults(null);
-    setAnalyzeLiveResults([]);
-    setAnalyzeProgress(null);
+    analysis.reset();
     setIsAnalyzeModalOpen(true);
   };
 
-  // Execute BPM & Key Analysis with real-time streaming feedback
+  // Execute BPM & Key analysis. The batch runs as a server-side job in the worker pool.
   const handleStartAnalysis = async () => {
     if (!scanResult || scanResult.tracks.length === 0) return;
-
-    let targetTracks: LocalTrackItem[] = [];
-    if (analyzeScope === 'selected') {
-      targetTracks = scanResult.tracks.filter((t) => selectedIds.has(t.id));
-    } else if (analyzeScope === 'missing') {
-      targetTracks = scanResult.tracks.filter((t) => !t.bpm || !t.key);
-    } else {
-      targetTracks = scanResult.tracks;
-    }
-
-    if (targetTracks.length === 0) {
-      alert('No tracks match the selected analysis criteria.');
-      return;
-    }
-
-    try {
-      setIsAnalyzing(true);
-      setAnalyzeResults(null);
-      setAnalyzeLiveResults([]);
-      setAnalyzeProgress({
-        current: 0,
-        total: targetTracks.length,
-        percent: 0,
-        currentFileName: targetTracks[0]?.fileName,
-      });
-
-      const filePaths = targetTracks.map((t) => t.filePath);
-      const res = await api.analyzeTracksStream(filePaths, analyzeWriteTags, (progress) => {
-        if (progress.type === 'progress_start') {
-          setAnalyzeProgress({
-            current: progress.current,
-            total: progress.total,
-            percent: progress.percent,
-            currentFileName: progress.fileName,
-          });
-        } else if (progress.type === 'progress' && progress.result) {
-          setAnalyzeProgress({
-            current: progress.current,
-            total: progress.total,
-            percent: progress.percent,
-            currentFileName: progress.fileName,
-          });
-          const analyzed = progress.result;
-          setAnalyzeLiveResults((prev) => [analyzed, ...prev]);
-
-          // Live update table state in real time
-          if (analyzed.bpm || analyzed.camelotKey) {
-            setScanResult((prev) => {
-              if (!prev) return prev;
-              const updatedTracks = prev.tracks.map((t) => {
-                if (t.filePath === analyzed.filePath) {
-                  return {
-                    ...t,
-                    bpm: analyzed.bpm ?? t.bpm,
-                    key: analyzed.camelotKey ?? analyzed.key ?? t.key,
-                  };
-                }
-                return t;
-              });
-              return { ...prev, tracks: updatedTracks };
-            });
-          }
-        }
-      });
-
-      setAnalyzeResults(res.results);
-      setAnalyzeProgress(null);
-
-      // Re-scan from disk to guarantee full disk sync
-      await handleScan();
-    } catch (err: any) {
-      console.error('BPM/Key Analysis failed:', err);
-      alert(`Analysis failed: ${err.message || 'Unknown error'}`);
-    } finally {
-      setIsAnalyzing(false);
-    }
+    await analysis.start(analysis.selectTargets(scanResult.tracks, selectedIds));
   };
 
-  // Execute DJ Set creation
+  const handleCancelAnalysis = () => analysis.cancel();
+
   const handleCreateDjSet = async () => {
-    if (!sessionName.trim()) return;
-
-    try {
-      setIsCreatingSet(true);
-      const selectedPaths = selectedTracksList.map((t) => t.filePath);
-      const defaultLibraryRoot = settings.defaultLibraryDir || scanPath;
-      const targetDir = customTargetDir.trim()
-        ? customTargetDir.trim()
-        : `${defaultLibraryRoot.replace(/[\/\\]+$/, '')}\\${sessionName.trim()}`;
-
-      const res = await api.createDjSet({
-        sourceDirectory: scanPath,
-        targetDirectory: targetDir,
-        sessionName: sessionName.trim(),
-        trackPaths: selectedPaths,
-        copyMode,
-        cleanEmptyFolders,
-      });
-
-      setDjSetResult(res);
-
-      // If successful, re-scan to refresh table state
-      if (res.success) {
-        loadDjSets();
-        setTimeout(() => {
-          handleScan();
-        }, 1200);
-      }
-    } catch (err: any) {
-      console.error('Create DJ set failed:', err);
-      alert(`Failed to create DJ set: ${err.message || 'Unknown error'}`);
-    } finally {
-      setIsCreatingSet(false);
-    }
+    await djSetState.createDjSet(selectedTracksList, scanPath);
   };
 
-  // Execute Physical Deletion
   const handleDeleteTracks = async () => {
-    if (selectedTracksList.length === 0) return;
-
-    try {
-      setIsDeleting(true);
-      const selectedPaths = selectedTracksList.map((t) => t.filePath);
-      const res = await api.deleteTracks(selectedPaths, scanPath);
-
-      setDeleteResult({
-        success: res.success,
-        count: res.deletedCount,
-        errors: res.errors,
-      });
-
-      if (res.success) {
-        loadDjSets();
-        setTimeout(() => {
-          setIsDeleteModalOpen(false);
-          setDeleteResult(null);
-          handleScan();
-        }, 1500);
-      }
-    } catch (err: any) {
-      console.error('Delete failed:', err);
-      alert(`Failed to delete files: ${err.message || 'Unknown error'}`);
-    } finally {
-      setIsDeleting(false);
-    }
+    await djSetState.deleteTracks(selectedTracksList, scanPath);
+    setIsDeleteModalOpen(false);
   };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-6">
+    <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -898,7 +444,7 @@ export const Mp3ManagementPage: React.FC<Mp3ManagementPageProps> = ({ settings }
 
       {/* Statistics Cards */}
       {scanResult && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
           <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-4 flex items-center gap-3.5">
             <div className="p-3 rounded-lg bg-emerald-950/80 border border-emerald-800/40 text-emerald-400">
               <Disc3 className="w-5 h-5" />
@@ -1207,283 +753,23 @@ export const Mp3ManagementPage: React.FC<Mp3ManagementPageProps> = ({ settings }
       {/* Main Track Table */}
       {scanResult && (
         <div className="bg-[#111827] border border-[#1e293b] rounded-2xl overflow-hidden shadow-2xl">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-300">
-              <thead className="bg-[#090d16]/90 border-b border-[#1e293b] text-slate-400 uppercase tracking-wider text-[11px] sticky top-0 backdrop-blur z-10 select-none">
-                <tr>
-                  <th className="p-3.5 w-8 text-center" title="Drag and drop to reorder tracks"></th>
-                  <th className="p-3.5 w-10 text-center">
-                    <button
-                      onClick={handleToggleSelectAll}
-                      className="text-slate-400 hover:text-white transition-all"
-                      title="Toggle selection"
-                    >
-                      {selectedIds.size > 0 && selectedIds.size === filteredTracks.length ? (
-                        <CheckSquare className="w-4 h-4 text-emerald-400" />
-                      ) : selectedIds.size > 0 ? (
-                        <div className="w-4 h-4 rounded bg-emerald-500/40 border border-emerald-400 flex items-center justify-center text-[10px] text-white font-bold">
-                          -
-                        </div>
-                      ) : (
-                        <Square className="w-4 h-4 text-slate-500" />
-                      )}
-                    </button>
-                  </th>
-                  <th className="p-3.5 w-14">Cover</th>
-                  <th className="p-3.5">Title & Track</th>
-                  <th className="p-3.5">Artist</th>
-                  <th className="p-3.5">Album / Subfolder</th>
-                  <th className="p-3.5 w-20 text-center">BPM</th>
-                  <th
-                    className="p-3.5 w-20 text-center cursor-pointer hover:text-violet-300 transition-colors"
-                    title="Click to view Camelot Wheel chart"
-                    onClick={() => {
-                      setSelectedCamelotKey(undefined);
-                      setIsCamelotModalOpen(true);
-                    }}
-                  >
-                    <div className="flex items-center justify-center gap-1">
-                      <span>Key</span>
-                      <Compass className="w-3 h-3 text-violet-400 opacity-70" />
-                    </div>
-                  </th>
-                  <th className="p-3.5 w-24">Format</th>
-                  <th className="p-3.5 w-20 text-right">Time</th>
-                  <th className="p-3.5 w-24 text-right">Size</th>
-                  <th className="p-3.5 w-12 text-center">Path</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#1e293b]/60 font-sans">
-                {filteredTracks.length === 0 ? (
-                  <tr>
-                    <td colSpan={12} className="py-12 text-center text-slate-500 text-sm">
-                      No tracks found matching your search criteria.
-                    </td>
-                  </tr>
-                ) : (
-                  paginatedTracks.map((track) => {
-                    const isSelected = selectedIds.has(track.id);
-                    const isDragged = draggedTrackId === track.id;
-                    const isDragOver = dragOverTrackId === track.id && !isDragged;
-                    const isThisPlaying = playingTrack?.id === track.id && isPlaying;
-
-                    return (
-                      <tr
-                        key={track.id}
-                        draggable
-                        onDragStart={(e) => handleDragStart(e, track.id)}
-                        onDragOver={(e) => handleDragOver(e, track.id)}
-                        onDrop={(e) => handleDrop(e, track.id)}
-                        onDragEnd={handleDragEnd}
-                        onClick={() => handleToggleTrack(track.id)}
-                        className={`transition-all select-none cursor-pointer group ${
-                          isDragged
-                            ? 'opacity-30 bg-violet-950/60 scale-[0.99]'
-                            : isDragOver
-                            ? 'border-t-2 border-violet-500 bg-violet-950/30'
-                            : isSelected
-                            ? 'bg-emerald-950/20 hover:bg-emerald-950/30'
-                            : 'hover:bg-[#161f30]'
-                        }`}
-                      >
-                        {/* Drag Handle */}
-                        <td
-                          className="p-3.5 w-8 text-center text-slate-600 hover:text-violet-400 cursor-grab active:cursor-grabbing transition-colors"
-                          onClick={(e) => e.stopPropagation()}
-                          title="Drag up or down to reorder track"
-                        >
-                          <GripVertical className="w-4 h-4 mx-auto" />
-                        </td>
-
-                        {/* Checkbox */}
-                        <td
-                          className="p-3.5 text-center"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <button
-                            onClick={() => handleToggleTrack(track.id)}
-                            className="text-slate-400 hover:text-white transition-all"
-                          >
-                            {isSelected ? (
-                              <CheckSquare className="w-4 h-4 text-emerald-400" />
-                            ) : (
-                              <Square className="w-4 h-4 text-slate-600 group-hover:text-slate-400" />
-                            )}
-                          </button>
-                        </td>
-
-                        {/* Artwork with Play Preview Overlay */}
-                        <td className="p-3.5" onClick={(e) => e.stopPropagation()}>
-                          <div className="relative w-10 h-10 rounded-lg overflow-hidden bg-[#090d16] border border-[#1e293b] flex items-center justify-center shrink-0 shadow-sm group/art">
-                            {track.hasArtwork ? (
-                              <img
-                                src={api.getArtworkUrl(track.filePath)}
-                                alt={track.title}
-                                className="w-full h-full object-cover"
-                                onError={(e) => {
-                                  // Fallback to placeholder on error
-                                  (e.target as HTMLElement).style.display = 'none';
-                                }}
-                              />
-                            ) : (
-                              <div className="w-full h-full bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center text-slate-500">
-                                <Music className="w-4 h-4" />
-                              </div>
-                            )}
-
-                            {/* Play / Pause button overlay */}
-                            <button
-                              onClick={() => handlePlayTrack(track)}
-                              className={`absolute inset-0 flex items-center justify-center transition-all ${
-                                isThisPlaying
-                                  ? 'bg-black/60 opacity-100'
-                                  : 'bg-black/50 opacity-0 group-hover/art:opacity-100 hover:bg-black/70'
-                              }`}
-                              title={isThisPlaying ? 'Pause Audio Preview' : 'Play Audio Preview'}
-                            >
-                              {isThisPlaying ? (
-                                <Pause className="w-4 h-4 text-emerald-400 fill-emerald-400 animate-pulse" />
-                              ) : (
-                                <Play className="w-4 h-4 text-white fill-white ml-0.5" />
-                              )}
-                            </button>
-                          </div>
-                        </td>
-
-                        {/* Title & Info with quick play */}
-                        <td className="p-3.5 font-medium text-white">
-                          <div className="flex items-center gap-1.5">
-                            {track.trackNumber && (
-                              <span className="text-[10px] font-mono text-slate-500">
-                                {track.trackNumber.toString().padStart(2, '0')}.
-                              </span>
-                            )}
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handlePlayTrack(track);
-                              }}
-                              className={`p-1 rounded-md transition-all shrink-0 ${
-                                isThisPlaying
-                                  ? 'text-emerald-400 bg-emerald-950/60'
-                                  : 'text-slate-500 hover:text-emerald-400 hover:bg-slate-800'
-                              }`}
-                              title={isThisPlaying ? 'Pause' : 'Play Preview'}
-                            >
-                              {isThisPlaying ? (
-                                <Pause className="w-3 h-3 fill-emerald-400" />
-                              ) : (
-                                <Play className="w-3 h-3" />
-                              )}
-                            </button>
-                            <span
-                              className={`font-bold transition-colors ${
-                                isThisPlaying ? 'text-emerald-300' : 'text-slate-100 group-hover:text-emerald-300'
-                              }`}
-                            >
-                              {track.title}
-                            </span>
-                          </div>
-                          {track.year && (
-                            <span className="text-[10px] text-slate-500 font-mono">({track.year})</span>
-                          )}
-                        </td>
-
-                        {/* Artist */}
-                        <td className="p-3.5">
-                          <span className="px-2 py-0.5 rounded-md bg-cyan-950/60 border border-cyan-800/40 text-cyan-300 font-medium text-[11px]">
-                            {track.artist}
-                          </span>
-                        </td>
-
-                        {/* Album / Subfolder */}
-                        <td className="p-3.5 text-slate-400 text-[11px] max-w-[180px] truncate" title={track.album || track.relativeSubPath}>
-                          <span className="text-slate-300">{track.album || '—'}</span>
-                          {track.relativeSubPath.includes('\\') || track.relativeSubPath.includes('/') ? (
-                            <p className="text-[10px] text-slate-500 font-mono truncate">
-                              📁 {track.relativeSubPath.split(/[\/\\]/).slice(0, -1).join('/')}
-                            </p>
-                          ) : null}
-                        </td>
-
-                        {/* BPM Column */}
-                        <td className="p-3.5 text-center">
-                          {track.bpm ? (
-                            <span className="px-2 py-0.5 rounded-md bg-amber-950/70 border border-amber-800/50 text-amber-300 font-mono font-bold text-[11px]">
-                              {track.bpm}
-                            </span>
-                          ) : (
-                            <span className="text-slate-600 text-xs font-mono">—</span>
-                          )}
-                        </td>
-
-                        {/* Musical Key Column */}
-                        <td className="p-3.5 text-center" onClick={(e) => e.stopPropagation()}>
-                          {track.key ? (
-                            <button
-                              onClick={() => {
-                                setSelectedCamelotKey(track.key);
-                                setIsCamelotModalOpen(true);
-                              }}
-                              className="px-2 py-0.5 rounded-md bg-purple-950/70 hover:bg-purple-900 border border-purple-800/50 hover:border-purple-600 text-purple-300 font-mono font-bold text-[11px] transition-all cursor-pointer shadow-sm hover:scale-105"
-                              title={`Key: ${track.key} (Click to open in Camelot Wheel)`}
-                            >
-                              {track.key}
-                            </button>
-                          ) : (
-                            <span className="text-slate-600 text-xs font-mono">—</span>
-                          )}
-                        </td>
-
-                        {/* Format & Quality: if FLAC, show 'FLAC' without truncated bitrate */}
-                        <td className="p-3.5">
-                          <span
-                            className={`px-2 py-0.5 rounded-md text-[10px] font-mono uppercase font-bold border ${
-                              track.lossless
-                                ? 'bg-purple-950/70 border-purple-800/60 text-purple-300'
-                                : 'bg-blue-950/70 border-blue-800/60 text-blue-300'
-                            }`}
-                          >
-                            {track.extension.toLowerCase().includes('flac')
-                              ? 'FLAC'
-                              : `${track.extension.replace('.', '')} ${track.bitrate ? `${track.bitrate}k` : ''}`}
-                          </span>
-                        </td>
-
-                        {/* Duration */}
-                        <td className="p-3.5 text-right font-mono text-slate-400">
-                          {formatDuration(track.durationSec)}
-                        </td>
-
-                        {/* Size */}
-                        <td className="p-3.5 text-right font-mono text-slate-400">
-                          {formatBytes(track.fileSize)}
-                        </td>
-
-                        {/* Copy Path Action */}
-                        <td
-                          className="p-3.5 text-center"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <button
-                            onClick={() => handleCopyPath(track.filePath, track.id)}
-                            className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-500 hover:text-cyan-400 transition-all"
-                            title={`Copy path: ${track.filePath}`}
-                          >
-                            {copiedPathId === track.id ? (
-                              <Check className="w-3.5 h-3.5 text-emerald-400" />
-                            ) : (
-                              <Copy className="w-3.5 h-3.5" />
-                            )}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+          <TrackTable
+            tracks={paginatedTracks}
+            allFilteredCount={filteredTracks.length}
+            selectedIds={selectedIds}
+            playingTrackId={playingTrack?.id}
+            isPlaying={isPlaying}
+            copiedPathId={copiedPathId}
+            onToggleTrack={handleToggleTrack}
+            onToggleSelectAll={handleToggleSelectAll}
+            onPlay={handlePlayTrack}
+            onCopyPath={handleCopyPath}
+            onOpenKey={(key) => {
+              setSelectedCamelotKey(key);
+              setIsCamelotModalOpen(true);
+            }}
+            onReorder={moveTrack}
+          />
 
           {/* Footer Bar with Pagination */}
           <div className="p-4 bg-[#090d16]/70 border-t border-[#1e293b] flex flex-col md:flex-row items-center justify-between gap-3 text-xs text-slate-400">
@@ -1984,7 +1270,7 @@ export const Mp3ManagementPage: React.FC<Mp3ManagementPageProps> = ({ settings }
                       <label className="block text-[11px] font-semibold text-slate-300">
                         Max Harmonic Step Threshold:
                       </label>
-                      <div className="grid grid-cols-3 gap-1.5 text-xs">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 text-xs">
                         {[
                           { val: 0, label: '0 (Exact & Rel)', tip: 'Same key or Relative Maj/Min' },
                           { val: 1, label: '1 (Adjacent ±1)', tip: 'Smooth ±1 step (Recommended)' },
@@ -2031,7 +1317,7 @@ export const Mp3ManagementPage: React.FC<Mp3ManagementPageProps> = ({ settings }
                       <label className="block text-[11px] font-semibold text-slate-300">
                         Energy Progression Curve:
                       </label>
-                      <div className="grid grid-cols-2 gap-1.5 text-xs">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-xs">
                         <button
                           type="button"
                           onClick={() => setBpmCurve('wave')}
@@ -2181,27 +1467,12 @@ export const Mp3ManagementPage: React.FC<Mp3ManagementPageProps> = ({ settings }
         selectedKey={selectedCamelotKey}
       />
 
-      {/* Hidden Audio element for track preview */}
-      <audio
-        ref={audioRef}
-        onTimeUpdate={() => {
-          if (audioRef.current) setPlaybackTime(audioRef.current.currentTime);
-        }}
-        onLoadedMetadata={() => {
-          if (audioRef.current) setPlaybackDuration(audioRef.current.duration);
-        }}
-        onEnded={() => {
-          setIsPlaying(false);
-          handleNextTrack();
-        }}
-      />
-
       {/* Floating Audio Preview Player Bar */}
       {playingTrack && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 bg-[#090d16]/95 backdrop-blur-xl border-t border-[#1e293b] p-3 px-6 shadow-2xl animate-fadeIn">
+        <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-[#1e293b] bg-[#090d16]/95 p-3 px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-2xl backdrop-blur-xl animate-fadeIn sm:px-6">
           <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3">
             {/* Track Info & Artwork */}
-            <div className="flex items-center gap-3 min-w-[240px]">
+            <div className="flex w-full items-center gap-3 md:w-auto md:min-w-[240px]">
               <div className="w-11 h-11 rounded-lg overflow-hidden bg-slate-900 border border-[#1e293b] shrink-0 relative">
                 {playingTrack.hasArtwork ? (
                   <img
@@ -2275,7 +1546,7 @@ export const Mp3ManagementPage: React.FC<Mp3ManagementPageProps> = ({ settings }
             </div>
 
             {/* Volume & Close */}
-            <div className="flex items-center gap-3 min-w-[200px] justify-end">
+            <div className="hidden items-center justify-end gap-3 md:flex md:min-w-[200px]">
               <button
                 onClick={handleToggleMute}
                 className="text-slate-400 hover:text-white transition-all"
@@ -2352,7 +1623,7 @@ export const Mp3ManagementPage: React.FC<Mp3ManagementPageProps> = ({ settings }
                 <label className="block text-slate-300 font-semibold mb-1.5">
                   Tracks to Export:
                 </label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => setExportScope('all')}
@@ -2743,6 +2014,15 @@ export const Mp3ManagementPage: React.FC<Mp3ManagementPageProps> = ({ settings }
                       </span>
                     </>
                   )}
+                </button>
+              )}
+
+              {isAnalyzing && (
+                <button
+                  onClick={handleCancelAnalysis}
+                  className="w-full rounded-xl border border-red-700/60 bg-red-950/60 px-5 py-3 text-xs font-bold text-red-200 transition-all hover:bg-red-900/60 sm:w-auto"
+                >
+                  Cancel analysis
                 </button>
               )}
             </div>

@@ -2,6 +2,23 @@ export type ServiceType = 'qobuz' | 'spotify';
 
 export type QualityId = 5 | 6 | 7 | 27; // 5: MP3 320, 6: FLAC 16/44.1, 7: FLAC 24/<=96, 27: FLAC 24/>96
 
+/** Account as sent to the client: credential values are replaced by presence flags. */
+export interface RedactedAccount {
+  id: string;
+  service: ServiceType;
+  label: string;
+  email?: string;
+  username?: string;
+  avatarUrl?: string;
+  isActive: boolean;
+  credentialSummary: {
+    qobuz?: { hasUserAuthToken: boolean; tokenHint?: string; hasPassword: boolean };
+    spotify?: { hasClientId: boolean; clientIdHint?: string; hasClientSecret: boolean; hasAccessToken: boolean };
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Account {
   id: string;
   service: ServiceType;
@@ -176,6 +193,24 @@ export interface AudioAnalysisResult {
   camelotKey: string | null;
   confidence: number;
   tagsWritten: boolean;
+  /** Detection succeeded but scored too low to be written to disk. */
+  lowConfidence?: boolean;
+  error?: string;
+}
+
+export type AnalysisJobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'canceled';
+
+export interface AnalysisJob {
+  id: string;
+  status: AnalysisJobStatus;
+  total: number;
+  completed: number;
+  successCount: number;
+  writeTags: boolean;
+  currentFile?: string;
+  results: AudioAnalysisResult[];
+  startedAt: string;
+  finishedAt?: string;
   error?: string;
 }
 
