@@ -104,14 +104,68 @@ export const api = {
     return res.json();
   },
 
-  async browseDirectory(currentPath?: string): Promise<{ path?: string; canceled: boolean }> {
+  async browseDirectory(currentPath?: string, title?: string): Promise<{ path?: string; canceled: boolean }> {
     const res = await fetch(`${API_BASE}/settings/browse-folder`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ currentPath }),
+      body: JSON.stringify({ currentPath, title }),
     });
     if (!res.ok) throw new Error('Failed to open directory dialog');
     return res.json();
+  },
+
+  // MP3 Collection Management
+  async scanLocalDirectory(directory?: string): Promise<import('../../shared/types.js').ScanDirectoryResult> {
+    const res = await fetch(`${API_BASE}/mp3/scan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ directory }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to scan directory');
+    }
+    return res.json();
+  },
+
+  async createDjSet(request: import('../../shared/types.js').CreateDjSetRequest): Promise<import('../../shared/types.js').CreateDjSetResult> {
+    const res = await fetch(`${API_BASE}/mp3/create-dj-set`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to create DJ set');
+    }
+    return res.json();
+  },
+
+  async deleteTracks(filePaths: string[], sourceDirectory?: string): Promise<import('../../shared/types.js').DeleteTracksResult> {
+    const res = await fetch(`${API_BASE}/mp3/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filePaths, sourceDirectory }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to delete tracks');
+    }
+    return res.json();
+  },
+
+  async listDjSets(): Promise<import('../../shared/types.js').DjSetItem[]> {
+    const res = await fetch(`${API_BASE}/mp3/dj-sets`);
+    if (!res.ok) return [];
+    return res.json();
+  },
+
+  getArtworkUrl(filePath: string): string {
+    return `${API_BASE}/mp3/artwork?path=${encodeURIComponent(filePath)}`;
+  },
+
+  getStreamUrl(filePath: string): string {
+    return `${API_BASE}/mp3/stream?path=${encodeURIComponent(filePath)}`;
   },
 
   // Converter

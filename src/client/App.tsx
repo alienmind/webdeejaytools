@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Sidebar, ActiveTab } from './components/Layout/Sidebar.js';
 import { ConverterPage } from './pages/Converter/index.js';
 import { DownloaderPage } from './pages/Downloader/index.js';
+import { Mp3ManagementPage } from './pages/Mp3Management/index.js';
 import { AdminPage } from './pages/Admin/index.js';
 import { useSSE } from './hooks/useSSE.js';
 import { Account, AppSettings } from '../shared/types.js';
@@ -12,6 +13,7 @@ export const App: React.FC = () => {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [settings, setSettings] = useState<AppSettings>({
     defaultDownloadDir: './downloads',
+    defaultLibraryDir: './library',
     defaultQuality: 6,
     embedArtwork: true,
     createM3u: true,
@@ -53,6 +55,7 @@ export const App: React.FC = () => {
       <main className="flex-1 h-screen overflow-y-auto bg-gradient-to-b from-[#0d1322] via-[#090d16] to-[#070a12]">
         {activeTab === 'converter' && <ConverterPage accounts={accounts} />}
         {activeTab === 'downloader' && <DownloaderPage settings={settings} queue={downloadQueue} />}
+        {activeTab === 'mp3' && <Mp3ManagementPage settings={settings} />}
         {activeTab === 'admin' && (
           <AdminPage
             accounts={accounts}
