@@ -1,23 +1,47 @@
 import { Hono } from 'hono';
 import { store } from '../db/index.js';
-import { execFile, exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
+import { appSettingsSchema, browseFolderSchema } from '../../shared/schemas.js';
+import { errorResponse, parseBody } from '../util/validate.js';
+import { grantSessionRoot } from '../util/paths.js';
 
 const execFileAsync = promisify(execFile);
-const execAsync = promisify(exec);
 const app = new Hono();
 
 /**
+ * Hook installed by the Electron main process so the folder picker uses the native dialog instead
+ * of shelling out. Set via setNativeDirectoryPicker() at startup.
+ */
+let nativeDirectoryPicker: ((defaultPath?: string, description?: string) => Promise<string | null>) | null = null;
+
+export function setNativeDirectoryPicker(
+  picker: (defaultPath?: string, description?: string) => Promise<string | null>
+): void {
+  nativeDirectoryPicker = picker;
+}
+
+/**
  * Triggers a native visual folder picker on Windows, macOS, or Linux.
+ *
+ * Everything here uses execFile with an argument array, never a shell string. The previous
+ * implementation interpolated the caller-supplied dialog title into a shell command and escaped
+ * only double quotes, which left $(...), backticks and backslashes live on macOS and Linux - a
+ * title of `$(...)` executed.
  */
 async function promptDirectoryDialog(defaultPath?: string, description?: string): Promise<string | null> {
+  if (nativeDirectoryPicker) {
+    return nativeDirectoryPicker(defaultPath, description);
+  }
+
   const platform = process.platform;
   const initialPath = defaultPath ? path.resolve(defaultPath) : process.cwd();
-  const dialogDesc = description || 'Select Directory';
+  const dialogDesc = (description || 'Select Directory').replace(/[\r\n]+/g, ' ').slice(0, 200);
 
   if (platform === 'win32') {
-    // PowerShell FolderBrowserDialog using base64 EncodedCommand to avoid any escaping or quote stripping issues
+    // PowerShell FolderBrowserDialog via base64 EncodedCommand. Values are embedded in
+    // single-quoted PowerShell literals where doubling the quote is the complete escape.
     const psScript = `
 Add-Type -AssemblyName System.Windows.Forms
 $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
@@ -44,33 +68,39 @@ if ($res -eq [System.Windows.Forms.DialogResult]::OK) {
         '-EncodedCommand',
         encoded,
       ]);
-      const selected = stdout.trim();
-      return selected || null;
+      return stdout.trim() || null;
     } catch (err) {
       console.error('[FolderDialog] PowerShell error:', err);
       return null;
     }
-  } else if (platform === 'darwin') {
-    // macOS AppleScript
+  }
+
+  if (platform === 'darwin') {
+    // The AppleScript source is passed as a single execFile argument, so no shell parses it. The
+    // prompt is still quote-escaped because it lands inside an AppleScript string literal.
+    const appleScript = `POSIX path of (choose folder with prompt "${dialogDesc.replace(/["\\]/g, '\\$&')}")`;
     try {
-      const { stdout } = await execAsync(`osascript -e 'POSIX path of (choose folder with prompt "${dialogDesc.replace(/"/g, '\\"')}")'`);
-      const selected = stdout.trim();
-      return selected || null;
+      const { stdout } = await execFileAsync('osascript', ['-e', appleScript]);
+      return stdout.trim() || null;
     } catch {
       return null;
     }
-  } else {
-    // Linux: try zenity or kdialog
+  }
+
+  try {
+    const { stdout } = await execFileAsync('zenity', [
+      '--file-selection',
+      '--directory',
+      `--title=${dialogDesc}`,
+      `--filename=${initialPath}${path.sep}`,
+    ]);
+    return stdout.trim() || null;
+  } catch {
     try {
-      const { stdout } = await execAsync(`zenity --file-selection --directory --title="${dialogDesc.replace(/"/g, '\\"')}" --filename="${initialPath}/"`);
+      const { stdout } = await execFileAsync('kdialog', ['--getexistingdirectory', initialPath]);
       return stdout.trim() || null;
     } catch {
-      try {
-        const { stdout } = await execAsync(`kdialog --getexistingdirectory "${initialPath}"`);
-        return stdout.trim() || null;
-      } catch {
-        return null;
-      }
+      return null;
     }
   }
 }
@@ -83,27 +113,32 @@ app.get('/', (c) => {
 // Update settings
 app.put('/', async (c) => {
   try {
-    const body = await c.req.json();
+    // Validated against a schema rather than written straight through: this body used to land in
+    // db.json verbatim, whatever keys it carried.
+    const body = await parseBody(c, appSettingsSchema);
     const updated = store.updateSettings(body);
     return c.json(updated);
-  } catch (err: any) {
-    return c.json({ error: err.message || 'Failed to update settings' }, 400);
+  } catch (err) {
+    return errorResponse(c, err, 'API settings/update');
   }
 });
 
 // Visual folder browser dialog
 app.post('/browse-folder', async (c) => {
   try {
-    const body = await c.req.json().catch(() => ({}));
-    const currentPath = body.currentPath || store.getSettings().defaultLibraryDir || store.getSettings().defaultDownloadDir;
-    const title = body.title || 'Select Directory';
-    const selected = await promptDirectoryDialog(currentPath, title);
+    const body = await parseBody(c, browseFolderSchema);
+    const settings = store.getSettings();
+    const currentPath = body.currentPath || settings.defaultLibraryDir || settings.defaultDownloadDir;
+    const selected = await promptDirectoryDialog(currentPath, body.title || 'Select Directory');
+
     if (selected) {
+      // The user picked this folder in a native dialog, so it is an explicit grant for this run.
+      grantSessionRoot(selected);
       return c.json({ path: selected, canceled: false });
     }
     return c.json({ canceled: true });
-  } catch (err: any) {
-    return c.json({ error: err.message, canceled: true }, 500);
+  } catch (err) {
+    return errorResponse(c, err, 'API settings/browse-folder');
   }
 });
 
