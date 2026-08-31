@@ -10,7 +10,8 @@ import {
   Sliders,
   Sparkles,
   Key,
-  ExternalLink,
+  Pencil,
+  HelpCircle,
 } from 'lucide-react';
 import { Account, AppSettings, AuthTestResult, QualityId, ServiceType } from '../../../shared/types.js';
 import { api } from '../../services/api.js';
@@ -30,15 +31,15 @@ export const AdminPage: React.FC<AdminPageProps> = ({
 }) => {
   // Modal / Form state
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showHelpModal, setShowHelpModal] = useState(false);
+  const [helpTab, setHelpTab] = useState<'curl' | 'cookie'>('curl');
+  const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [newService, setNewService] = useState<ServiceType>('qobuz');
   const [newLabel, setNewLabel] = useState('');
   // Qobuz fields
-  const [qobuzEmail, setQobuzEmail] = useState('');
-  const [qobuzPassword, setQobuzPassword] = useState('');
   const [qobuzUserAuthToken, setQobuzUserAuthToken] = useState('');
   const [qobuzCookieInput, setQobuzCookieInput] = useState('');
   const [isImportingCookie, setIsImportingCookie] = useState(false);
-  const [isAutoDetecting, setIsAutoDetecting] = useState(false);
   // Spotify fields
   const [spotifyClientId, setSpotifyClientId] = useState('');
   const [spotifyClientSecret, setSpotifyClientSecret] = useState('');
@@ -53,21 +54,42 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, AuthTestResult>>({});
   const [savingAccount, setSavingAccount] = useState(false);
-  const [isLoggingInBrowser, setIsLoggingInBrowser] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
 
-  const handleAutoDetectBrowser = async () => {
-    setIsAutoDetecting(true);
+  const openAddModal = () => {
+    setEditingAccountId(null);
+    setNewService('qobuz');
+    setNewLabel('');
+    setQobuzUserAuthToken('');
+    setQobuzCookieInput('');
+    setSpotifyClientId('');
+    setSpotifyClientSecret('');
+    setSpotifyAccessToken('');
     setModalError(null);
-    try {
-      await api.autoDetectLocalBrowserSession();
-      onAccountsUpdated();
-      setShowAddModal(false);
-    } catch (err: any) {
-      setModalError(err.message || 'Auto-detection failed');
-    } finally {
-      setIsAutoDetecting(false);
+    setShowAddModal(true);
+  };
+
+  const openEditModal = (acc: Account) => {
+    setEditingAccountId(acc.id);
+    setNewService(acc.service);
+    setNewLabel(acc.label);
+    setModalError(null);
+
+    if (acc.service === 'qobuz') {
+      setQobuzUserAuthToken(acc.credentials.qobuz?.userAuthToken || '');
+      setQobuzCookieInput(''); // Always empty in Edit mode (one-way pasting field)
+      setSpotifyClientId('');
+      setSpotifyClientSecret('');
+      setSpotifyAccessToken('');
+    } else {
+      setSpotifyClientId(acc.credentials.spotify?.clientId || '');
+      setSpotifyClientSecret(acc.credentials.spotify?.clientSecret || '');
+      setSpotifyAccessToken(acc.credentials.spotify?.accessToken || '');
+      setQobuzUserAuthToken('');
+      setQobuzCookieInput('');
     }
+
+    setShowAddModal(true);
   };
 
   const handleImportCookie = async () => {
@@ -75,42 +97,21 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     setIsImportingCookie(true);
     setModalError(null);
     try {
-      await api.importQobuzCookie(qobuzCookieInput.trim(), newLabel.trim() || undefined);
+      await api.importQobuzCookie(
+        qobuzCookieInput.trim(),
+        newLabel.trim() || undefined,
+        editingAccountId || undefined
+      );
       onAccountsUpdated();
       setShowAddModal(false);
+      setEditingAccountId(null);
       setNewLabel('');
       setQobuzCookieInput('');
-      setQobuzEmail('');
-      setQobuzPassword('');
       setQobuzUserAuthToken('');
     } catch (err: any) {
       setModalError(err.message || 'Failed to import session from cookie');
     } finally {
       setIsImportingCookie(false);
-    }
-  };
-
-  const handleBrowserLogin = async (interactive = false) => {
-    setIsLoggingInBrowser(true);
-    setModalError(null);
-    try {
-      await api.loginQobuzViaBrowser({
-        email: qobuzEmail.trim() || undefined,
-        password: qobuzPassword || undefined,
-        label: newLabel.trim() || 'Qobuz Account',
-        interactive,
-      });
-
-      onAccountsUpdated();
-      setShowAddModal(false);
-      setNewLabel('');
-      setQobuzEmail('');
-      setQobuzPassword('');
-      setQobuzUserAuthToken('');
-    } catch (err: any) {
-      setModalError(err.message || 'Browser login failed');
-    } finally {
-      setIsLoggingInBrowser(false);
     }
   };
 
@@ -164,9 +165,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       const credentials: any = {};
       if (newService === 'qobuz') {
         credentials.qobuz = {
-          email: qobuzEmail.trim() || undefined,
-          password: qobuzPassword || undefined,
-          userAuthToken: qobuzUserAuthToken.trim() || undefined,
+          userAuthToken: qobuzUserAuthToken.trim() || qobuzCookieInput.trim() || undefined,
         };
       } else {
         credentials.spotify = {
@@ -177,6 +176,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       }
 
       await api.saveAccount({
+        id: editingAccountId || undefined,
         service: newService,
         label: newLabel.trim(),
         credentials,
@@ -184,11 +184,11 @@ export const AdminPage: React.FC<AdminPageProps> = ({
 
       onAccountsUpdated();
       setShowAddModal(false);
+      setEditingAccountId(null);
       // Reset
       setNewLabel('');
-      setQobuzEmail('');
-      setQobuzPassword('');
       setQobuzUserAuthToken('');
+      setQobuzCookieInput('');
       setSpotifyClientId('');
       setSpotifyClientSecret('');
       setSpotifyAccessToken('');
@@ -225,7 +225,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
             <span className="p-2 rounded-xl bg-slate-800 border border-slate-700 text-cyan-400">
               <Sliders className="w-6 h-6" />
             </span>
-            <span>Admin & Multi-Account Credentials Manager</span>
+            <span>Admin & Accounts</span>
           </h2>
           <p className="text-sm text-slate-400 mt-1">
             Configure streaming accounts, Qobuz dynamic bundle scraping secrets, and global download settings.
@@ -233,7 +233,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
         </div>
 
         <button
-          onClick={() => setShowAddModal(true)}
+          onClick={openAddModal}
           className="px-5 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-sm font-semibold rounded-xl transition-all shadow-glow-cyan flex items-center gap-2"
         >
           <Plus className="w-4 h-4" />
@@ -255,7 +255,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
             <Key className="w-8 h-8 mx-auto mb-2 opacity-40" />
             <p>No streaming accounts configured yet.</p>
             <button
-              onClick={() => setShowAddModal(true)}
+              onClick={openAddModal}
               className="mt-3 text-cyan-400 text-xs hover:underline"
             >
               Add your first account now
@@ -288,6 +288,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                         {acc.credentials.qobuz?.email && (
                           <p className="text-xs text-slate-400 font-mono">{acc.credentials.qobuz.email}</p>
                         )}
+                        {acc.credentials.qobuz?.userAuthToken && !acc.credentials.qobuz?.email && (
+                          <p className="text-xs text-cyan-400/80 font-mono">Token: {acc.credentials.qobuz.userAuthToken.substring(0, 10)}...</p>
+                        )}
                         {acc.credentials.spotify?.clientId && (
                           <p className="text-xs text-slate-400 font-mono">Client ID: {acc.credentials.spotify.clientId.substring(0, 8)}...</p>
                         )}
@@ -310,7 +313,15 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                         </span>
                       )}
                       <button
+                        onClick={() => openEditModal(acc)}
+                        title="Edit credentials"
+                        className="p-1.5 text-slate-400 hover:text-cyan-300 rounded-lg hover:bg-cyan-950/40 transition-colors"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
                         onClick={() => handleDeleteAccount(acc.id)}
+                        title="Delete account"
                         className="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-rose-950/40 transition-colors"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -458,9 +469,11 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       {/* Add Account Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#111827] border border-[#1e293b] rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-5 animate-fadeIn">
+          <div className="bg-[#111827] border border-[#1e293b] rounded-2xl w-full max-w-xl p-6 shadow-2xl space-y-5 animate-fadeIn">
             <div className="flex items-center justify-between border-b border-[#1e293b] pb-3">
-              <h3 className="font-bold text-white text-base">Add Streaming Account</h3>
+              <h3 className="font-bold text-white text-base">
+                {editingAccountId ? 'Edit Streaming Account' : 'Add Streaming Account'}
+              </h3>
               <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-white">✕</button>
             </div>
 
@@ -512,100 +525,63 @@ export const AdminPage: React.FC<AdminPageProps> = ({
               </div>
 
               {newService === 'qobuz' ? (
-                <>
-                  {/* Method 1: Chrome Cookie / cURL Import & Auto-Detect */}
-                  <div className="p-3 bg-[#0a0f1d] border border-cyan-900/60 rounded-xl space-y-3">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
-                        <Key className="w-3.5 h-3.5 text-cyan-400" />
-                        Option 1: Chrome Session & Cookies (Zero Captcha)
-                      </label>
-                      <button
-                        type="button"
-                        disabled={isAutoDetecting}
-                        onClick={handleAutoDetectBrowser}
-                        className="px-2.5 py-1 bg-blue-600/80 hover:bg-blue-500 text-white text-[11px] font-semibold rounded-lg transition-all flex items-center gap-1 border border-blue-400/40"
-                      >
-                        {isAutoDetecting ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-                        Auto-Detect from Local Chrome
-                      </button>
-                    </div>
+                <div className="p-4 bg-[#0a0f1d] border border-cyan-900/60 rounded-xl space-y-4">
+                  {/* Top Bar with Title & Help Guide Button */}
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
+                      <Key className="w-3.5 h-3.5 text-cyan-400" />
+                      Qobuz Token Authentication
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowHelpModal(true)}
+                      className="px-2.5 py-1 rounded-lg bg-cyan-950/80 border border-cyan-700/80 text-cyan-300 hover:text-white hover:border-cyan-400 text-xs font-semibold transition-all flex items-center gap-1.5 shadow-sm"
+                      title="Step-by-step visual guide on getting your token"
+                    >
+                      <HelpCircle className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>How to get token?</span>
+                    </button>
+                  </div>
+
+                  {/* Token Field */}
+                  <div className="space-y-1.5">
+                    <label className="block text-[10px] uppercase font-mono text-slate-400">
+                      User Auth Token (user_auth_token)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. paste your user_auth_token or use importer below..."
+                      value={qobuzUserAuthToken}
+                      onChange={(e) => setQobuzUserAuthToken(e.target.value)}
+                      className="w-full px-3 py-2 bg-[#060911] border border-[#1e293b] rounded-xl text-xs text-cyan-300 placeholder-slate-600 focus:outline-none focus:border-cyan-500 font-mono"
+                    />
+                  </div>
+
+                  {/* Quick Importer Box */}
+                  <div className="pt-3 border-t border-[#1e293b] space-y-2">
+                    <label className="block text-[11px] font-semibold text-slate-300">
+                      Quick Importer (Paste Cookie header, cURL, or Token)
+                    </label>
                     <textarea
                       rows={2}
-                      placeholder="Or paste your Cookie header, cURL command, or user_auth_token from Chrome..."
+                      placeholder="Paste your Cookie header, cURL command, or user_auth_token from Chrome..."
                       value={qobuzCookieInput}
                       onChange={(e) => setQobuzCookieInput(e.target.value)}
                       className="w-full px-3 py-2 bg-[#060911] border border-[#1e293b] rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 font-mono resize-none"
                     />
-                    <div className="flex items-center justify-between">
-                      <p className="text-[10px] text-slate-400">
-                        In Chrome on play.qobuz.com: DevTools (F12) → Network → Copy as cURL.
-                      </p>
+                    <div className="flex justify-end pt-1">
                       <button
                         type="button"
                         disabled={isImportingCookie || !qobuzCookieInput.trim()}
                         onClick={handleImportCookie}
-                        className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-800 disabled:text-slate-500 text-white text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 shadow-md shadow-cyan-950"
+                        className="px-3.5 py-1.5 bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-800 disabled:text-slate-500 text-white text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 shadow-md shadow-cyan-950"
                       >
                         {isImportingCookie ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                        Import Cookie
+                        <span>Import from Cookie / cURL</span>
                       </button>
                     </div>
                   </div>
-
-                  <div className="relative flex py-1 items-center">
-                    <div className="flex-grow border-t border-slate-800"></div>
-                    <span className="flex-shrink mx-3 text-[10px] text-slate-500 font-bold uppercase tracking-wider">OR OPTION 2: EMAIL & PASSWORD</span>
-                    <div className="flex-grow border-t border-slate-800"></div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1">Qobuz Email</label>
-                    <input
-                      type="email"
-                      placeholder="user@example.com"
-                      value={qobuzEmail}
-                      onChange={(e) => setQobuzEmail(e.target.value)}
-                      className="w-full px-3 py-2 bg-[#090d16] border border-[#1e293b] rounded-xl text-xs text-white focus:outline-none focus:border-cyan-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1">Qobuz Password</label>
-                    <input
-                      type="password"
-                      placeholder="••••••••"
-                      value={qobuzPassword}
-                      onChange={(e) => setQobuzPassword(e.target.value)}
-                      className="w-full px-3 py-2 bg-[#090d16] border border-[#1e293b] rounded-xl text-xs text-white focus:outline-none focus:border-cyan-500"
-                    />
-                  </div>
-                  <div className="pt-2 border-t border-[#1e293b] space-y-2">
-                    <p className="text-xs font-semibold text-cyan-300 flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5" />
-                      Playwright Browser Authentication
-                    </p>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        disabled={isLoggingInBrowser || !qobuzEmail || !qobuzPassword}
-                        onClick={() => handleBrowserLogin(false)}
-                        className="p-2 bg-gradient-to-r from-blue-900/60 to-cyan-900/60 hover:from-blue-800 hover:to-cyan-800 border border-cyan-700/50 rounded-xl text-white text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
-                      >
-                        {isLoggingInBrowser ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                        Auto Browser Login
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isLoggingInBrowser}
-                        onClick={() => handleBrowserLogin(true)}
-                        className="p-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-xl text-white text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
-                      >
-                        {isLoggingInBrowser ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <ExternalLink className="w-3.5 h-3.5" />}
-                        Open Browser Window
-                      </button>
-                    </div>
-                  </div>
-                </>
+                </div>
               ) : (
                 <>
                   <div>
@@ -652,12 +628,129 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                 <button
                   type="submit"
                   disabled={savingAccount}
-                  className="px-5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold rounded-xl transition-all"
+                  className="px-5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold rounded-xl transition-all shadow-md shadow-cyan-950"
                 >
-                  {savingAccount ? 'Saving...' : 'Save Account'}
+                  {savingAccount ? 'Saving...' : (editingAccountId ? 'Update Account' : 'Save Account')}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Visual Token Help Modal */}
+      {showHelpModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[60] flex items-center justify-center p-4">
+          <div className="bg-[#111827] border border-[#1e293b] rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl animate-fadeIn">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-[#1e293b] flex items-center justify-between bg-[#0d1322]">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center">
+                  <HelpCircle className="w-5 h-5 text-cyan-400" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-base">How to Get Your Qobuz Token</h3>
+                  <p className="text-xs text-slate-400">Step-by-step guide</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowHelpModal(false)}
+                className="w-8 h-8 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center text-lg transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Method Tabs */}
+            <div className="px-5 pt-3 bg-[#0d1322] border-b border-[#1e293b] flex gap-2">
+              <button
+                type="button"
+                onClick={() => setHelpTab('curl')}
+                className={`px-3.5 py-2 rounded-t-xl text-xs font-bold transition-all border-b-2 ${
+                  helpTab === 'curl'
+                    ? 'bg-[#111827] text-cyan-300 border-cyan-400'
+                    : 'text-slate-400 hover:text-slate-200 border-transparent'
+                }`}
+              >
+                ⚡ Copy as cURL (Fastest)
+              </button>
+              <button
+                type="button"
+                onClick={() => setHelpTab('cookie')}
+                className={`px-3.5 py-2 rounded-t-xl text-xs font-bold transition-all border-b-2 ${
+                  helpTab === 'cookie'
+                    ? 'bg-[#111827] text-cyan-300 border-cyan-400'
+                    : 'text-slate-400 hover:text-slate-200 border-transparent'
+                }`}
+              >
+                🍪 Application Cookies
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-4 text-xs text-slate-300 leading-relaxed">
+              {helpTab === 'curl' && (
+                <div className="space-y-4">
+                  <div className="p-3 rounded-xl bg-blue-950/40 border border-blue-800/40 text-blue-200 flex items-start gap-2.5">
+                    <Sparkles className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="text-white">Recommended & Easiest:</strong> Right-clicking any request in Chrome DevTools captures your token, session cookies, and headers in one click!
+                    </div>
+                  </div>
+
+                  <img
+                    src="/assets/help/step3_network_curl.png"
+                    alt="Copy as cURL in Chrome Network tab"
+                    className="w-full rounded-xl border border-[#1e293b] shadow-xl object-contain bg-[#090d16]"
+                  />
+
+                  <ol className="list-decimal list-inside space-y-2 text-slate-300 font-medium">
+                    <li>Open <a href="https://play.qobuz.com" target="_blank" rel="noreferrer" className="text-cyan-400 underline">play.qobuz.com</a> in your Chrome/Brave/Edge browser and ensure you are logged in.</li>
+                    <li>Press <kbd className="px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded text-[11px] font-mono text-cyan-300">F12</kbd> (or Right Click → <em>Inspect</em>) to open Chrome Developer Tools.</li>
+                    <li>Click on the <strong className="text-white">Network</strong> tab at the top of DevTools.</li>
+                    <li>Click on any album, playlist, or refresh the page to trigger network requests.</li>
+                    <li>Right-click any request (e.g. <code>getUserFavorites</code>) → <strong className="text-white">Copy → Copy as cURL</strong>.</li>
+                    <li>Paste the copied text directly into the <strong className="text-white">Quick Importer</strong> box in WebDeeJayTools and click <strong className="text-cyan-300">Import from Cookie / cURL</strong>!</li>
+                  </ol>
+                </div>
+              )}
+
+              {helpTab === 'cookie' && (
+                <div className="space-y-4">
+                  <div className="p-3 rounded-xl bg-purple-950/40 border border-purple-800/40 text-purple-200 flex items-start gap-2.5">
+                    <Key className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="text-white">Direct Cookie Inspection:</strong> You can copy the exact <code>user_auth_token</code> value directly from Chrome's cookie storage.
+                    </div>
+                  </div>
+
+                  <img
+                    src="/assets/help/step2_application_cookies.png"
+                    alt="Application Cookies in Chrome DevTools"
+                    className="w-full rounded-xl border border-[#1e293b] shadow-xl object-contain bg-[#090d16]"
+                  />
+
+                  <ol className="list-decimal list-inside space-y-2 text-slate-300 font-medium">
+                    <li>Open <a href="https://play.qobuz.com" target="_blank" rel="noreferrer" className="text-cyan-400 underline">play.qobuz.com</a> in Chrome.</li>
+                    <li>Press <kbd className="px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded text-[11px] font-mono text-cyan-300">F12</kbd> and switch to the <strong className="text-white">Application</strong> tab.</li>
+                    <li>In the left sidebar, expand <strong className="text-white">Storage → Cookies → https://play.qobuz.com</strong>.</li>
+                    <li>Find the cookie named <code className="text-cyan-300 font-mono">user_auth_token</code>.</li>
+                    <li>Double-click the <strong className="text-white">Value</strong> cell, press <kbd className="px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded text-[11px] font-mono text-cyan-300">Ctrl+C</kbd>, and paste it into the <strong className="text-white">User Auth Token</strong> field!</li>
+                  </ol>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-[#0d1322] border-t border-[#1e293b] flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowHelpModal(false)}
+                className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl transition-all border border-slate-600"
+              >
+                Got It, Close Guide
+              </button>
+            </div>
           </div>
         </div>
       )}

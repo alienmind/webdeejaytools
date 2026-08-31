@@ -62,11 +62,11 @@ export const api = {
     return res.json();
   },
 
-  async importQobuzCookie(input: string, label?: string): Promise<{ success: boolean; account: Account; message: string }> {
+  async importQobuzCookie(input: string, label?: string, id?: string): Promise<{ success: boolean; account: Account; message: string }> {
     const res = await fetch(`${API_BASE}/accounts/qobuz/import-cookie`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ input, label }),
+      body: JSON.stringify({ input, label, id }),
     });
     if (!res.ok) {
       const err = await res.json();

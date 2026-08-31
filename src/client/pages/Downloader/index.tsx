@@ -107,10 +107,10 @@ export const DownloaderPage: React.FC<DownloaderPageProps> = ({ settings, queue 
             <span className="p-2 rounded-xl bg-purple-950/80 border border-purple-700/50 text-purple-400">
               <Download className="w-6 h-6" />
             </span>
-            <span>High-Fidelity Audio Downloader</span>
+            <span>Audio Downloader</span>
           </h2>
           <p className="text-sm text-slate-400 mt-1">
-            Download pristine lossless FLAC and 320kbps MP3 directly from Qobuz with embedded ID3v2/Vorbis tags & M3U generation.
+            Download lossless audio and high-bitrate tracks with embedded metadata, cover art & M3U playlist generation.
           </p>
         </div>
       </div>
@@ -127,7 +127,7 @@ export const DownloaderPage: React.FC<DownloaderPageProps> = ({ settings, queue 
         <form onSubmit={handlePreview} className="flex gap-3">
           <input
             type="text"
-            placeholder="Paste Qobuz track, album, or playlist URL (e.g. https://play.qobuz.com/album/...)"
+            placeholder="Paste track, album, or playlist URL..."
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             className="flex-1 px-4 py-3 bg-[#090d16] border border-[#1e293b] rounded-xl text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all font-mono"

@@ -157,7 +157,7 @@ export const ConverterPage: React.FC<ConverterPageProps> = ({ accounts }) => {
             <span className="p-2 rounded-xl bg-cyan-950/80 border border-cyan-700/50 text-cyan-400">
               <RefreshCw className="w-6 h-6" />
             </span>
-            <span>Playlist Converter & Cross-Service Sync</span>
+            <span>Playlist Converter</span>
           </h2>
           <p className="text-sm text-slate-400 mt-1">
             Seamlessly migrate and sync playlists between Qobuz and Spotify with 4-tier fuzzy matching.

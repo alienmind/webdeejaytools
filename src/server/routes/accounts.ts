@@ -109,7 +109,7 @@ app.post('/qobuz/browser-login', async (c) => {
 // Import session directly from Chrome cookie string / cURL header / JSON export
 app.post('/qobuz/import-cookie', async (c) => {
   try {
-    const body = await c.req.json() as { input: string; label?: string };
+    const body = await c.req.json() as { input: string; label?: string; id?: string };
     if (!body.input || !body.input.trim()) {
       return c.json({ error: 'Please paste your Cookie header, cURL, or token string.' }, 400);
     }
@@ -117,6 +117,7 @@ app.post('/qobuz/import-cookie', async (c) => {
     const { token, user } = await importCookiesOrToken(body.input);
 
     const account = store.saveAccount({
+      id: body.id || undefined,
       service: 'qobuz',
       label: body.label || user.display_name || user.email || 'Qobuz (Chrome Session)',
       credentials: {

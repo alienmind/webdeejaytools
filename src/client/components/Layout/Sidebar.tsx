@@ -31,7 +31,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div>
             <h1 className="font-extrabold text-base tracking-tight text-white flex items-center gap-1.5">
               <span>WebDeeJay</span>
-              <span className="text-cyan-400 font-mono text-xs px-1.5 py-0.5 bg-cyan-950/70 border border-cyan-800/60 rounded">PRO</span>
+              <span className="text-cyan-400 font-mono text-xs px-1.5 py-0.5 bg-cyan-950/70 border border-cyan-800/60 rounded">TOOLS</span>
             </h1>
             <p className="text-xs text-slate-400">DJ Automation Suite</p>
           </div>
