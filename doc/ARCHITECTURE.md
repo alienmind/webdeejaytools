@@ -139,6 +139,6 @@ WebDeeJayTools can be run in two modes:
 2. **Portable Desktop Application**:
    - Packaged with **Electron** and **electron-builder**.
    - `dist/` (React UI) + `dist-electron/` (Hono Server + Electron Window) are bundled into standalone binaries.
-   - **Windows Portable**: `release/WebDeeJayTOOLS-Portable-v0.1.0.exe` runs directly off any USB drive without installation.
-   - **macOS**: `release/WebDeeJayTOOLS-mac-v0.1.0.dmg`.
-   - **Linux**: `release/WebDeeJayTOOLS-linux-v0.1.0.AppImage`.
+   - **Windows Portable**: `release/WebDeeJayTOOLS-Portable-v0.2.0.exe` runs directly off any USB drive without installation.
+   - **macOS**: `release/WebDeeJayTOOLS-mac-v0.2.0.dmg`.
+   - **Linux**: `release/WebDeeJayTOOLS-linux-v0.2.0.AppImage`.
