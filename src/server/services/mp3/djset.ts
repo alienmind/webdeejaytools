@@ -3,6 +3,7 @@ import path from 'path';
 import sanitize from 'sanitize-filename';
 import { CreateDjSetRequest, CreateDjSetResult } from '../../../shared/types.js';
 import { store } from '../../db/index.js';
+import { assertAllowedPath, isPathAllowed, samePath } from '../../util/paths.js';
 
 /**
  * Generates a non-conflicting filename if a file with the same name already exists in targetDir.
@@ -25,16 +26,29 @@ async function getUniqueDestinationPath(targetDir: string, originalFileName: str
  * Recursively removes empty subdirectories inside a root directory (does not remove rootDir itself).
  */
 async function cleanEmptyDirectories(dir: string, rootDir: string): Promise<void> {
-  if (!fs.existsSync(dir) || path.resolve(dir) === path.resolve(rootDir)) {
+  const resolvedDir = path.resolve(dir);
+  const resolvedRoot = path.resolve(rootDir);
+
+  if (!fs.existsSync(resolvedDir) || samePath(resolvedDir, resolvedRoot)) {
     return;
   }
 
-  const entries = await fs.promises.readdir(dir);
+  // This function walks *upward*. Without an explicit containment check, a caller passing an
+  // unrelated root would let it delete directories anywhere above the starting point.
+  const rel = path.relative(resolvedRoot, resolvedDir);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
+    return;
+  }
+  if (!isPathAllowed(resolvedDir)) {
+    return;
+  }
+
+  const entries = await fs.promises.readdir(resolvedDir);
   if (entries.length === 0) {
     try {
-      await fs.promises.rmdir(dir);
+      await fs.promises.rmdir(resolvedDir);
       // Clean parent recursively up to rootDir
-      await cleanEmptyDirectories(path.dirname(dir), rootDir);
+      await cleanEmptyDirectories(path.dirname(resolvedDir), resolvedRoot);
     } catch {
       // Ignore if cannot remove
     }
@@ -48,8 +62,10 @@ export async function createDjSet(request: CreateDjSetRequest): Promise<CreateDj
   const settings = store.getSettings();
   const sessionName = sanitize(request.sessionName.trim()) || `DJ_Set_${Date.now()}`;
   const libraryRoot = settings.defaultLibraryDir || path.resolve(process.cwd(), 'library');
+  // Re-asserted here rather than trusting the route: this function moves and deletes files, so
+  // containment is an invariant of the operation itself.
   const targetDir = request.targetDirectory
-    ? path.resolve(request.targetDirectory)
+    ? assertAllowedPath(request.targetDirectory)
     : path.resolve(libraryRoot, sessionName);
 
   const copyMode = Boolean(request.copyMode); // false by default -> moves files physically
@@ -65,7 +81,13 @@ export async function createDjSet(request: CreateDjSetRequest): Promise<CreateDj
   const parentFoldersToClean = new Set<string>();
 
   for (const srcPath of trackPaths) {
-    const resolvedSrc = path.resolve(srcPath);
+    let resolvedSrc: string;
+    try {
+      resolvedSrc = assertAllowedPath(srcPath);
+    } catch {
+      errors.push({ filePath: srcPath, error: 'Path is outside the allowed library folders' });
+      continue;
+    }
 
     if (!fs.existsSync(resolvedSrc)) {
       errors.push({ filePath: srcPath, error: 'Source file not found' });
@@ -73,7 +95,7 @@ export async function createDjSet(request: CreateDjSetRequest): Promise<CreateDj
     }
 
     // Do not process if file is already inside targetDir
-    if (path.dirname(resolvedSrc) === targetDir) {
+    if (samePath(path.dirname(resolvedSrc), targetDir)) {
       processedCount++;
       continue;
     }
@@ -136,6 +158,12 @@ export async function createDjSet(request: CreateDjSetRequest): Promise<CreateDj
   return result;
 }
 
+/** Case-folded only where the filesystem is case-insensitive. See util/paths. */
+function pathKey(p: string): string {
+  const resolved = path.resolve(p);
+  return process.platform === 'win32' || process.platform === 'darwin' ? resolved.toLowerCase() : resolved;
+}
+
 const SUPPORTED_AUDIO_EXTS = new Set([
   '.mp3',
   '.flac',
@@ -153,6 +181,9 @@ const SUPPORTED_AUDIO_EXTS = new Set([
  * Returns a list of all registered DJ sets and discovered subfolders in the library directory.
  */
 export async function listDjSets(): Promise<import('../../../shared/types.js').DjSetItem[]> {
+  // Every addOrUpdateDjSet/deleteDjSet below used to rewrite the whole database. Discovery over a
+  // library with 40 folders meant 40 full-file writes; now it is one.
+  const pendingWrites: (() => void)[] = [];
   const registeredSets = store.getDjSets();
   const validSets: import('../../../shared/types.js').DjSetItem[] = [];
   const knownPaths = new Set<string>();
@@ -167,12 +198,12 @@ export async function listDjSets(): Promise<import('../../../shared/types.js').D
         ).length;
         set.trackCount = audioCount;
         validSets.push(set);
-        knownPaths.add(path.resolve(set.path).toLowerCase());
+        knownPaths.add(pathKey(set.path));
       } catch {
         // Skip inaccessible
       }
     } else {
-      store.deleteDjSet(set.id);
+      pendingWrites.push(() => store.deleteDjSet(set.id));
     }
   }
 
@@ -184,7 +215,7 @@ export async function listDjSets(): Promise<import('../../../shared/types.js').D
       for (const entry of entries) {
         if (entry.isDirectory()) {
           const dirPath = path.resolve(settings.defaultLibraryDir, entry.name);
-          if (!knownPaths.has(dirPath.toLowerCase())) {
+          if (!knownPaths.has(pathKey(dirPath))) {
             try {
               const files = await fs.promises.readdir(dirPath);
               const audioCount = files.filter((f) =>
@@ -192,13 +223,15 @@ export async function listDjSets(): Promise<import('../../../shared/types.js').D
               ).length;
 
               if (audioCount > 0) {
-                const newSet = store.addOrUpdateDjSet({
-                  name: entry.name,
-                  path: dirPath,
-                  trackCount: audioCount,
-                });
+                const newSet = store.batch(() =>
+                  store.addOrUpdateDjSet({
+                    name: entry.name,
+                    path: dirPath,
+                    trackCount: audioCount,
+                  })
+                );
                 validSets.push(newSet);
-                knownPaths.add(dirPath.toLowerCase());
+                knownPaths.add(pathKey(dirPath));
               }
             } catch {
               // Ignore
@@ -209,6 +242,10 @@ export async function listDjSets(): Promise<import('../../../shared/types.js').D
     } catch {
       // Ignore
     }
+  }
+
+  if (pendingWrites.length > 0) {
+    store.batch(() => pendingWrites.forEach((write) => write()));
   }
 
   return validSets;
@@ -226,7 +263,14 @@ export async function deleteTracks(
   const parentFoldersToClean = new Set<string>();
 
   for (const filePath of filePaths) {
-    const resolvedPath = path.resolve(filePath);
+    let resolvedPath: string;
+    try {
+      resolvedPath = assertAllowedPath(filePath);
+    } catch {
+      errors.push({ filePath, error: 'Path is outside the allowed library folders' });
+      continue;
+    }
+
     if (!fs.existsSync(resolvedPath)) {
       errors.push({ filePath, error: 'File does not exist' });
       continue;
