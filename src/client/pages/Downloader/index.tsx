@@ -9,6 +9,7 @@ import {
   RefreshCw,
   Sparkles,
   HardDrive,
+  FolderOpen,
 } from 'lucide-react';
 import { AppSettings, DownloadItemProgress, QualityId, TrackItem } from '../../../shared/types.js';
 import { api } from '../../services/api.js';
@@ -33,7 +34,22 @@ export const DownloaderPage: React.FC<DownloaderPageProps> = ({ settings, queue 
   const [downloadDir, setDownloadDir] = useState<string>(settings.defaultDownloadDir || '');
   const [createM3u, setCreateM3u] = useState<boolean>(settings.createM3u ?? true);
   const [enqueuing, setEnqueuing] = useState(false);
+  const [isBrowsingDir, setIsBrowsingDir] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const handleBrowseDir = async () => {
+    try {
+      setIsBrowsingDir(true);
+      const res = await api.browseDirectory(downloadDir);
+      if (!res.canceled && res.path) {
+        setDownloadDir(res.path);
+      }
+    } catch (err) {
+      console.error('Failed to open directory browser:', err);
+    } finally {
+      setIsBrowsingDir(false);
+    }
+  };
 
   useEffect(() => {
     if (settings.defaultQuality) setSelectedQuality(settings.defaultQuality);
@@ -197,8 +213,19 @@ export const DownloaderPage: React.FC<DownloaderPageProps> = ({ settings, queue 
                 type="text"
                 value={downloadDir}
                 onChange={(e) => setDownloadDir(e.target.value)}
-                className="w-full px-3 py-2.5 bg-[#090d16] border border-[#1e293b] rounded-xl text-xs text-white focus:outline-none focus:border-purple-500 font-mono truncate"
+                className="flex-1 px-3 py-2.5 bg-[#090d16] border border-[#1e293b] rounded-xl text-xs text-white focus:outline-none focus:border-purple-500 font-mono truncate"
+                placeholder="e.g. ./downloads"
               />
+              <button
+                type="button"
+                onClick={handleBrowseDir}
+                disabled={isBrowsingDir}
+                className="px-3 py-2.5 rounded-xl bg-[#0e1626] hover:bg-purple-950/80 border border-purple-800/60 text-purple-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm shrink-0 disabled:opacity-50"
+                title="Browse folder visually"
+              >
+                <FolderOpen className="w-4 h-4 text-purple-400" />
+                <span>{isBrowsingDir ? '...' : 'Browse'}</span>
+              </button>
             </div>
           </div>
 

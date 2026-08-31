@@ -9,8 +9,18 @@ interface DatabaseSchema {
   downloadHistory: any[];
 }
 
+export function getBaseAppDir(): string {
+  if (process.env.PORTABLE_EXECUTABLE_DIR) {
+    return process.env.PORTABLE_EXECUTABLE_DIR;
+  }
+  if (process.env.APP_BASE_DIR) {
+    return process.env.APP_BASE_DIR;
+  }
+  return process.cwd();
+}
+
 const DEFAULT_SETTINGS: AppSettings = {
-  defaultDownloadDir: path.resolve(process.cwd(), 'downloads'),
+  defaultDownloadDir: path.resolve(getBaseAppDir(), 'downloads'),
   defaultQuality: 6 as QualityId, // FLAC 16/44.1
   embedArtwork: true,
   createM3u: true,
@@ -31,7 +41,7 @@ export class JsonStore {
   private data: DatabaseSchema;
 
   constructor(customPath?: string) {
-    this.dbPath = customPath || path.resolve(process.cwd(), 'data', 'db.json');
+    this.dbPath = customPath || path.resolve(getBaseAppDir(), 'data', 'db.json');
     this.data = this.load();
   }
 
@@ -48,13 +58,20 @@ export class JsonStore {
 
       const content = fs.readFileSync(this.dbPath, 'utf-8');
       const parsed = JSON.parse(content);
+      const settings = {
+        ...DEFAULT_SETTINGS,
+        ...(parsed.settings || {}),
+      };
+
+      // If previous portable run saved a temp AppData path, sanitize back to portable USB directory
+      if (settings.defaultDownloadDir && settings.defaultDownloadDir.includes('AppData\\Local\\Temp')) {
+        settings.defaultDownloadDir = path.resolve(getBaseAppDir(), 'downloads');
+      }
+
       return {
         ...DEFAULT_DB,
         ...parsed,
-        settings: {
-          ...DEFAULT_SETTINGS,
-          ...(parsed.settings || {}),
-        },
+        settings,
       };
     } catch (err) {
       console.error('[Store] Error reading database, using defaults:', err);

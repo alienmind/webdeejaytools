@@ -11,9 +11,13 @@ let mainWindow: BrowserWindow | null = null;
 let serverInstance: any = null;
 
 // Determine app root & resource paths
+// If running from an electron-builder portable executable, PORTABLE_EXECUTABLE_DIR contains the actual folder where the .exe sits (e.g. USB drive)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const appPath = app.isPackaged ? path.dirname(app.getPath('exe')) : process.cwd();
+const appPath = process.env.PORTABLE_EXECUTABLE_DIR || (app.isPackaged ? path.dirname(app.getPath('exe')) : process.cwd());
+process.env.APP_BASE_DIR = appPath;
+
+console.log(`[Electron] Base Application Directory: ${appPath}`);
 
 // Ensure local portable folders exist (e.g. on USB drive)
 const dataDir = path.join(appPath, 'data');

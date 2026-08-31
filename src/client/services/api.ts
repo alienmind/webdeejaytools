@@ -104,6 +104,16 @@ export const api = {
     return res.json();
   },
 
+  async browseDirectory(currentPath?: string): Promise<{ path?: string; canceled: boolean }> {
+    const res = await fetch(`${API_BASE}/settings/browse-folder`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPath }),
+    });
+    if (!res.ok) throw new Error('Failed to open directory dialog');
+    return res.json();
+  },
+
   // Converter
   async previewConverterUrl(url: string, accountId?: string): Promise<{
     service: ServiceType;

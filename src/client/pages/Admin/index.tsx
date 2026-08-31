@@ -13,6 +13,7 @@ import {
   Pencil,
   HelpCircle,
   ExternalLink,
+  FolderOpen,
 } from 'lucide-react';
 import { Account, AppSettings, AuthTestResult, QualityId, ServiceType } from '../../../shared/types.js';
 import { api } from '../../services/api.js';
@@ -50,6 +51,21 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   const [localSettings, setLocalSettings] = useState<AppSettings>(settings);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsSuccess, setSettingsSuccess] = useState(false);
+  const [isBrowsingDir, setIsBrowsingDir] = useState(false);
+
+  const handleBrowseDirectory = async () => {
+    try {
+      setIsBrowsingDir(true);
+      const result = await api.browseDirectory(localSettings.defaultDownloadDir);
+      if (!result.canceled && result.path) {
+        setLocalSettings((prev) => ({ ...prev, defaultDownloadDir: result.path! }));
+      }
+    } catch (err) {
+      console.error('Failed to open directory browser:', err);
+    } finally {
+      setIsBrowsingDir(false);
+    }
+  };
 
   // Test status state
   const [testingId, setTestingId] = useState<string | null>(null);
@@ -388,12 +404,25 @@ export const AdminPage: React.FC<AdminPageProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1.5">Default Download Directory</label>
-              <input
-                type="text"
-                value={localSettings.defaultDownloadDir}
-                onChange={(e) => setLocalSettings({ ...localSettings, defaultDownloadDir: e.target.value })}
-                className="w-full px-4 py-2.5 bg-[#090d16] border border-[#1e293b] rounded-xl text-xs text-white focus:outline-none focus:border-cyan-500 font-mono"
-              />
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={localSettings.defaultDownloadDir}
+                  onChange={(e) => setLocalSettings({ ...localSettings, defaultDownloadDir: e.target.value })}
+                  className="flex-1 px-4 py-2.5 bg-[#090d16] border border-[#1e293b] rounded-xl text-xs text-white focus:outline-none focus:border-cyan-500 font-mono"
+                  placeholder="e.g. C:\Music\Downloads or ./downloads"
+                />
+                <button
+                  type="button"
+                  onClick={handleBrowseDirectory}
+                  disabled={isBrowsingDir}
+                  className="px-3.5 py-2.5 rounded-xl bg-[#0e1626] hover:bg-cyan-950/80 border border-cyan-800/60 text-cyan-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm shrink-0 disabled:opacity-50"
+                  title="Browse folder visually"
+                >
+                  <FolderOpen className="w-4 h-4 text-cyan-400" />
+                  <span>{isBrowsingDir ? 'Opening...' : 'Browse'}</span>
+                </button>
+              </div>
             </div>
 
             <div>
@@ -533,7 +562,17 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                       <Key className="w-3.5 h-3.5 text-cyan-400" />
                       Qobuz Token Authentication
                     </label>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <a
+                        href="https://www.qobuz.com/es-es/discover"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-2.5 py-1 rounded-lg bg-emerald-950/60 border border-emerald-700/60 text-emerald-300 hover:text-white hover:border-emerald-400 text-xs font-semibold transition-all flex items-center gap-1.5 shadow-sm"
+                        title="Sign up for Qobuz 30-day free trial"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Qobuz free - 30 days</span>
+                      </a>
                       <a
                         href="https://play.qobuz.com"
                         target="_blank"
