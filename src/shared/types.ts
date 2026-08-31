@@ -169,6 +169,28 @@ export interface DeleteTracksResult {
   errors: { filePath: string; error: string }[];
 }
 
+export interface AudioAnalysisResult {
+  filePath: string;
+  bpm: number | null;
+  key: string | null;
+  camelotKey: string | null;
+  confidence: number;
+  tagsWritten: boolean;
+  error?: string;
+}
+
+export interface AnalyzeTracksRequest {
+  filePaths: string[];
+  writeTags?: boolean;
+}
+
+export interface AnalyzeTracksResponse {
+  results: AudioAnalysisResult[];
+  processedCount: number;
+  successCount: number;
+}
+
+
 export interface AuthTestResult {
   success: boolean;
   service: ServiceType;
